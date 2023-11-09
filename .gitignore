@@ -1,2 +1,8 @@
-./data/*
-./archive/*
+genetics/data/*
+genetics/archive/*
+phenotypes/data/*
+phenotypes/archive/*
+language/data/*
+language/archive/*
+mri/data/*
+mri/archive/*
