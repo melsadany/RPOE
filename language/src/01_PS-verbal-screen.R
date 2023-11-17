@@ -60,7 +60,7 @@ for (i in 1:nrow(p.of.int)) {
                   my.data.dir, "/", pid, ".mp3"))
     a.file <- paste0(my.data.dir, "/", pid, ".mp3")
   }else if(!file.exists(a.file)) {
-    system(paste0("cp ", raw.a.file," ", a.file))
+    system(str_c("cp ", raw.a.file," ", a.file))
   }
   aud <- readMP3(a.file)
   aud.cropped <- extractWave(aud, xunit = "time",
@@ -70,10 +70,18 @@ for (i in 1:nrow(p.of.int)) {
   system(paste0("mkdir -p ", project.dir, 
                 "/data/derivatives/PS-VC_participants-response/",
                 pid))
-  seewave::savewav(wave = aud.cropped, 
-                   filename = paste0(project.dir,
-                                     "/data/derivatives/PS-VC_participants-response/",
-                                     pid, "/", "full-PS_VC-cropped_",pid, ".mp3"))
+  # seewave::savewav(wave = aud.cropped, f = 44100, channel = "left",
+  #                  filename = paste0(project.dir,
+  #                                    "/data/derivatives/PS-VC_participants-response/",
+  #                                    pid, "/", "full-PS_VC-cropped_",pid, ".mp3"))
+  writeWave(Wave(left = as.numeric(aud.cropped@left), 
+                 samp.rate = 44100, 
+                 bit = 16, 
+                 pcm=T), 
+            filename = paste0(project.dir,
+                              "/data/derivatives/PS-VC_participants-response/",
+                              pid, "/", "full-PS_VC-cropped_",pid, ".mp3"), 
+            extensible = T)
   # get responses cropped
   for (j in 1:nrow(ps.vc.metadata)) {
     # j = 1
@@ -89,10 +97,18 @@ for (i in 1:nrow(p.of.int)) {
     plot(t.aud)
     # play(t.aud, "play")
     # saving the task output
-    seewave::savewav(wave = t.aud, 
-                     filename = paste0(project.dir,
-                                       "/data/derivatives/PS-VC_participants-response/",
-                                       pid, "/", task, ".mp3"))
+    # seewave::savewav(wave = t.aud,  f = 44100, channel = "left",
+    #                  filename = paste0(project.dir,
+    #                                    "/data/derivatives/PS-VC_participants-response/",
+    #                                    pid, "/", task, ".mp3"))
+    writeWave(Wave(left = as.numeric(t.aud@left), 
+                   samp.rate = 44100, 
+                   bit = 16, 
+                   pcm=T), 
+              filename = paste0(project.dir,
+                                "/data/derivatives/PS-VC_participants-response/",
+                                pid, "/", task, ".mp3"), 
+              extensible = T)
   }
 }
 
