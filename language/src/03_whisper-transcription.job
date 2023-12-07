@@ -1,0 +1,24 @@
+#! /bin/bash
+#$ -cwd
+#$ -q JM-GPU
+#$ -pe smp 80
+#$ -N whisper-transcription
+#$ -o logs/$JOB_NAME.log
+#$ -j y
+#$ -ckpt user
+
+
+conda activate whisper
+PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language
+OUT_DIR=$PROJECT_DIR/data/derivatives/PS-VC_transcription
+mkdir -p $OUT_DIR
+cd $OUT_DIR
+
+for i in $PROJECT_DIR/data/derivatives/PS-VC_participants-response/* ; do
+   PID=$(basename $i)
+   #echo $PID
+   whisper $PROJECT_DIR/data/derivatives/PS-VC_participants-response/$PID/full-PS_VC-cropped_$PID.wav --model large-v3 --language English --verbose True --threads 4
+   
+done
+
+

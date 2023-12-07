@@ -1,0 +1,24 @@
+#! /bin/bash
+#$ -cwd
+#$ -q JM,UI
+#$ -pe smp 24
+#$ -N surfboard-acoustics
+#$ -o logs/$JOB_NAME.log
+#$ -j y
+#$ -ckpt user
+
+
+conda activate surfboard
+SURF=/Dedicated/jmichaelson-wdata/msmuhammad/workbench/surfboard/example_configs/parkinsons_features.yaml
+PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language
+OUT_DIR=$PROJECT_DIR/data/derivatives/surfboard_out
+mkdir -p $OUT_DIR
+
+for i in $PROJECT_DIR/data/derivatives/PS-VC_participants-response/* ; do
+   PID=$(basename $i)
+   #echo $PID
+   surfboard compute-features -i $i/ -o $OUT_DIR/surfboard_audio_features_$PID.csv -F $SURF -j 20
+done
+PID=2E_031
+
+

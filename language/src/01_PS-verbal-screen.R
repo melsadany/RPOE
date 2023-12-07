@@ -18,13 +18,19 @@ ps.vc.metadata <- ps.vc.metadata.r %>%
   select(task_num, word, start_in_sec, end_in_sec)
 
 # keep participants of interest
-participants.metadata <- read_csv("data/derivatives/PS_VC-participants-metadata.csv")
+participants.metadata <- readxl::read_excel("data/raw/RPOE_meta.xlsx", sheet = 1)
 p.of.int <- participants.metadata %>% 
+  mutate(work_on = ifelse(work_on == "T", T, F)) %>%
   filter(work_on == T) %>%
-  mutate(start = as.numeric(sub("^\\d{2}:(\\d{2}):\\d{2}$", "\\1", first_beep)),
+  mutate(duration = format(as.POSIXct(duration), format = "%H:%M:%S"),
+         first_beep = format(as.POSIXct(first_beep), format = "%H:%M:%S"),
+         start = as.numeric(sub("^\\d{2}:(\\d{2}):\\d{2}$", "\\1", first_beep)),
          duration_m = as.numeric(sub("^([^:]+).*", "\\1", duration)),
+         # duration_m = as.numeric(format(as.POSIXct(firsct_beep), format = "%H")), # apparently R understood minutes as hours, and seconds as minutes
+         # duration_s = as.numeric(format(as.POSIXct(first_beep), format = "%M")),
          duration_s = as.numeric(sub("^\\d{2}:(\\d{2}):\\d{2}$", "\\1", duration)),
-         duration_in_sec = (60*duration_m)+duration_s) %>%
+         duration_in_sec = (60*duration_m)+duration_s
+         ) %>%
   select(ID, starts_with("duration"), start, audio, video, `all tasks completed`)
 
 ################################################################################
@@ -80,7 +86,7 @@ for (i in 1:nrow(p.of.int)) {
                  pcm=T), 
             filename = paste0(project.dir,
                               "/data/derivatives/PS-VC_participants-response/",
-                              pid, "/", "full-PS_VC-cropped_",pid, ".mp3"), 
+                              pid, "/", "full-PS_VC-cropped_",pid, ".wav"), 
             extensible = T)
   # get responses cropped
   for (j in 1:nrow(ps.vc.metadata)) {
@@ -94,7 +100,7 @@ for (i in 1:nrow(p.of.int)) {
                          from = ps.vc.metadata$start_in_sec[j], 
                          to = ps.vc.metadata$end_in_sec[j], 
                          xunit = "time")
-    plot(t.aud)
+    # plot(t.aud)
     # play(t.aud, "play")
     # saving the task output
     # seewave::savewav(wave = t.aud,  f = 44100, channel = "left",
@@ -107,7 +113,7 @@ for (i in 1:nrow(p.of.int)) {
                    pcm=T), 
               filename = paste0(project.dir,
                                 "/data/derivatives/PS-VC_participants-response/",
-                                pid, "/", task, ".mp3"), 
+                                pid, "/", task, ".wav"), 
               extensible = T)
   }
 }

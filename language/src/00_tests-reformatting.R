@@ -30,7 +30,7 @@ nih.tb <- readxl::read_xlsx("data/raw/ResearchProject.xlsx", skip = 2,
 ################################################################################
 # IQ testing
 iq.combined.names <- c(
-  "name", "dev_id", "2e_id", "iq_date", "iq_time", "sex", "iq_type", "gift_card",
+  "name", "dev_id", "te_id", "iq_date", "iq_time", "sex", "gender", "iq_type", "gift_card",
   "asd_dx", "adhd_dx", "report_requested", "report_proofed", "report_sent", 
   "VCI_PSI", "VCI_composite_score", "VCI_PR", "VCI_CI",
   "VSI_composite_score", "VSI_PR", "VSI_CI",
@@ -52,7 +52,7 @@ wisc.names <- c(
   "SI", "VC", "BD", "VP", "MR", "FW", "DS", "PS", "CD", "SS"
 )
 wais.names <- c(
-  "name", "dev_id", "iq_date", "iq_time", "sex", 
+  "name", "dev_id", "iq_date", "iq_time", "sex", "gender",
   # "iq_type",
   "report_requested", "report_proofed", "report_sent",
   "VCI_composite_score", "VCI_PR", "VCI_CI",
@@ -82,13 +82,13 @@ wais <- readxl::read_xlsx("data/raw/ResearchProject.xlsx", skip = 2,
     ifelse(is.character(x), readr::parse_number(x), x))
 wisc.wais <- full_join(wisc, wais%>%select(-iq_date)) %>%
   select(-c(iq_date, iq_time)) %>%
-  left_join(iq.combined %>% select(dev_id, `2e_id`))
+  left_join(iq.combined %>% select(dev_id, `te_id`))
 ################################################################################
 # save clean data
-write_csv(nih.tb, "data/derivatives/nih-tb_clean_111523.csv")
-write_csv(wais, "data/derivatives/wais_clean_111523.csv")
-write_csv(wisc, "data/derivatives/wisc_clean_111523.csv")
-write_csv(wisc.wais, "data/derivatives/wisc-and-wais_clean_111523.csv")
+write_csv(nih.tb, "data/derivatives/nih-tb_clean_120623.csv")
+write_csv(wais, "data/derivatives/wais_clean_120623.csv")
+write_csv(wisc, "data/derivatives/wisc_clean_120623.csv")
+write_csv(wisc.wais, "data/derivatives/wisc-and-wais_clean_120623.csv")
 ################################################################################
 
 ################################################################################
