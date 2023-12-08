@@ -94,6 +94,22 @@ foreach (i = 1:(length(p.list)-1)) %dopar% {
     write_tsv(out[["mdata"]], paste0(project.dir, "/data/derivatives/MRI-log/mdata/", pid, "_mdata.tsv"))
   }
 }
+
+# participant 2E_053 had something weird/different in their log file
+# So, I'll try to extract their keypresses from their csv file
+log <- "/sdata/MRI/RPOE/2E_053/scan/metadata/2E_053_semanticMap_2023-09-01_15h46.12.339.log" 
+csv <- read_csv("/sdata/MRI/RPOE/2E_053/scan/metadata/2E_053_semanticMap_2023-09-01_15h46.12.339.csv")
+tmp <- csv %>% 
+  # select(task, key_resp.keys, key_resp.rt) %>%
+  mutate(key_resp.keys = strsplit(gsub("[\\[\\]']", "", as.character(key_resp.keys)), ", "),
+         key_resp.rt = strsplit(gsub("[\\[\\]']", "", key_resp.rt), ", ")) %>%
+  unnest(key_resp.keys, key_resp.rt) %>%
+  mutate(keypress = paste0("Keypress: ", parse_number(key_resp.keys)),
+         rt = parse_number(key_resp.rt),
+         abs_time = key_resp.started,
+         keypress_rel_time = key_resp.started+rt) %>%
+  filter(!grepl("Keypress: 5",keypress,fixed=T))
+# apparently the file has keypresses for numbers only, other than that nothing was recorded
 ################################################################################
 
 ################################################################################

@@ -17,6 +17,7 @@ ps.vc.metadata <- ps.vc.metadata.r %>%
   select(task_num, word, start_in_sec, end_in_sec)
 ################################################################################
 # make your list of participants and their cropped audio files
+p.files <- data.frame(file = list.dirs("data/derivatives/PS-VC_participants-response", recursive = F, full.names = T))
 all.files <- data.frame(file = list.files(p.files$file, pattern = "task", full.names = T)) %>%
   mutate(task = sub("_.*", "", sub(".*task-", "", basename(file))),
          word = sub("_.*", "", sub(".*task-[0-9]_", "", basename(file))),
@@ -45,3 +46,57 @@ for(j in 1:length(unique(all.files$ID))) {
     system(cmd)
   }
 }
+################################################################################
+################################################################################
+# combine whisper transcription files per participants
+whisper.files <- all.files %>%
+  mutate(ID = sub("_task.*", "", basename(file))) %>%
+  mutate(file = sub("participants-response", "transcription", sub("\\.wav", ".tsv", file)))
+registerDoMC(cores = 3)
+all.transcriptions <- foreach(i = 1:nrow(whisper.files), .combine = rbind) %dopar% {
+  t <- read_tsv(whisper.files$file[i]) %>%
+    mutate(task = whisper.files$task[i],
+           word = whisper.files$word[i],
+           ID = whisper.files$ID[i])
+  return(t)
+}
+
+t13.transcriptions <- left_join(all.transcriptions, 
+                                ps.vc.metadata %>% mutate(task_order = c(1:nrow(ps.vc.metadata))) %>% select(-task_num), 
+                                relationship = "many-to-many") %>%
+  filter(task %in% c("1","3")) %>%
+  separate_rows(text, sep = "\\s|(?<=[0-9])(?=[^0-9])") %>%
+  mutate(text = str_replace_all(text, "\\.", ""),
+         text = str_replace_all(text, "-", ""),
+         text = str_replace_all(text, ",", ""))  %>% # Remove commas
+  filter(text != "")
+t24.transcriptions <- left_join(all.transcriptions, 
+                                ps.vc.metadata %>% mutate(task_order = c(1:nrow(ps.vc.metadata))) %>% select(-task_num), 
+                                relationship = "many-to-many") %>%
+  filter(task %in% c("2","4")) 
+################################################################################
+# extract "um"
+ums <- t13.transcriptions %>%
+  filter(grepl("um", text, ignore.case = T)&nchar(text)==2) %>%
+  group_by(word, ID) %>%
+  dplyr::summarise(count = n())
+################################################################################
+# look at categories of words said
+tmp <- cbind(t13.transcriptions,
+             nrc = syuzhet::get_nrc_sentiment(t13.transcriptions$text),
+             sentimentr::profanity(t13.transcriptions$text)%>%select(profanity_count),
+             lingmatch = lingmatch::lma_meta(t13.transcriptions$text),
+             lingmatch = lingmatch::lma_termcat(t13.transcriptions$text)) %>%
+  select(-c(lingmatch.words, lingmatch.unique_words, lingmatch.clauses, lingmatch.sentences, 
+            lingmatch.words_per_clause,
+            lingmatch.words_per_sentence, lingmatch.characters_per_word, lingmatch.syllables_per_word,
+            lingmatch.type_token_ratio))
+# save?
+write_rds(tmp, "data/derivatives/PS-VC_transcription/task-1-3-all-together.rds")
+################################################################################
+
+
+################################################################################
+
+
+################################################################################

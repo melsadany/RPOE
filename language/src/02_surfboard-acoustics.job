@@ -11,8 +11,7 @@
 conda activate surfboard
 SURF=/Dedicated/jmichaelson-wdata/msmuhammad/workbench/surfboard/example_configs/parkinsons_features.yaml
 PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language
-OUT_DIR=$PROJECT_DIR/data/derivatives/surfboard_out
-mkdir -p $OUT_DIR
+OUT_DIR=$PROJECT_DIR/data/derivatives
 
 for i in $PROJECT_DIR/data/derivatives/PS-VC_participants-response/* ; do
    PID=$(basename $i)
