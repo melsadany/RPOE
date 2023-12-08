@@ -188,7 +188,8 @@ corr.table(m124 %>% select(any_of(c(colnames(m1), colnames(m2))),
            m124 %>% select(colnames(chr.wise), 
                            colnames(word.wise), 
                            ums_count, word_count,
-                           -te_id)) %>%
+                           -te_id),
+           method = "spearman") %>%
   filter(V1 %in% c(colnames(m1), colnames(m2)), 
          V2 %in% c("ums_count", "word_count",colnames(chr.wise), colnames(word.wise))) %>%
   mutate(V1 = sub("_age_corrected_standard_score", "_NIH", V1)) %>%
