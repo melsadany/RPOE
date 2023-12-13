@@ -88,13 +88,21 @@ foreach (i = 1:(length(p.list)-1)) %dopar% {
   pid <- sub("/Dedicated/jmichaelson-sdata/MRI/RPOE/", "", f.path)
   file <- list.files(paste0(f.path, "/scan/metadata"), 
                      pattern = "log", full.names = T)
-  if (length(file)!=0) {
+  # participant 2E_046 did not complete the MRI scan. participant 2E_031 has a different version of the task. 
+  # please drop them
+  if (length(file)!=0 & !(grepl("2E_046", file) | grepl("2E_031", file))) { 
     out <- format_2e_fmri_metadata(fn = file)
     write_rds(out, paste0(project.dir, "/data/derivatives/MRI-log/", pid, "_fmri-all.rds"))
     write_tsv(out[["mdata"]], paste0(project.dir, "/data/derivatives/MRI-log/mdata/", pid, "_mdata.tsv"))
   }
 }
 
+#########
+# dropped participants 
+# 2E_031
+# 2E_046
+# 2E_053
+#########
 # participant 2E_053 had something weird/different in their log file
 # So, I'll try to extract their keypresses from their csv file
 log <- "/sdata/MRI/RPOE/2E_053/scan/metadata/2E_053_semanticMap_2023-09-01_15h46.12.339.log" 

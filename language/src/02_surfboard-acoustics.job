@@ -18,6 +18,5 @@ for i in $PROJECT_DIR/data/derivatives/PS-VC_participants-response/* ; do
    #echo $PID
    surfboard compute-features -i $i/ -o $OUT_DIR/surfboard_audio_features_$PID.csv -F $SURF -j 20
 done
-PID=2E_031
 
 
