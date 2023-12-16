@@ -34,7 +34,8 @@ p.of.int <- participants.metadata %>%
          duration_in_sec = (60*duration_m)+duration_s
          ) %>%
   select(ID, starts_with("duration"), start, audio, video, `all tasks completed`)
-
+# edit start for 2E_040
+p.of.int[which(p.of.int$ID == "2E_040"),"start"] <- 261
 ################################################################################
 # groundtruth data
 # library(signal);library(tuneR)
@@ -73,7 +74,7 @@ for (i in 1:nrow(p.of.int)) {
   aud <- readMP3(a.file)
   aud.cropped <- extractWave(aud, xunit = "time",
                              from = p.of.int$start[i], 
-                             to = p.of.int$duration_in_sec)
+                             to = p.of.int$duration_in_sec[i])
   # save full task response
   system(paste0("mkdir -p ", project.dir, 
                 "/data/derivatives/PS-VC_participants-response/",

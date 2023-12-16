@@ -11,12 +11,10 @@
 conda activate surfboard
 SURF=/Dedicated/jmichaelson-wdata/msmuhammad/workbench/surfboard/example_configs/parkinsons_features.yaml
 PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language
-OUT_DIR=$PROJECT_DIR/data/derivatives
+OUT_DIR=$PROJECT_DIR/data/derivatives/surfboard_out
+mkdir -p $OUT_DIR/surfboard_in
 
-for i in $PROJECT_DIR/data/derivatives/PS-VC_participants-response/* ; do
-   PID=$(basename $i)
-   #echo $PID
-   surfboard compute-features -i $i/ -o $OUT_DIR/surfboard_audio_features_$PID.csv -F $SURF -j 20
-done
+cp -R $PROJECT_DIR/data/derivatives/PS-VC_participants-response/*/*task-2* $OUT_DIR/surfboard_in/
 
+surfboard compute-features -i $OUT_DIR/surfboard_in -o $OUT_DIR/ALL_task-2.csv -F $SURF -j 20
 

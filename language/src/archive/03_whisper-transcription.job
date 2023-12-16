@@ -1,0 +1,30 @@
+#! /bin/bash
+#$ -cwd
+#$ -q JM-GPU
+#$ -pe smp 80
+#$ -N whisper-transcription
+#$ -o logs/$JOB_NAME.log
+#$ -j y
+#$ -ckpt user
+
+
+conda activate whisper
+PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language
+OUT_DIR=$PROJECT_DIR/data/derivatives/PS-VC_transcription
+mkdir -p $OUT_DIR
+cd $OUT_DIR
+
+FILE=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language/data/derivatives/cropped-audio-files-for-whisper
+
+if [ -f $FILE ]; then
+    # Read the file line by line and print each line
+    while IFS= read -r line; do
+        echo "$line"
+	whisper $PROJECT_DIR/$line --model large-v3 --language English --verbose True --output_format tsv --threads 70 --word_timestamps True --max_words_per_line 1
+    done < $FILE
+else
+    echo "File not found."
+fi
+
+
+

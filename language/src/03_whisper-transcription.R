@@ -22,10 +22,13 @@ all.files <- data.frame(file = list.files(p.files$file, pattern = "task", full.n
   mutate(task = sub("_.*", "", sub(".*task-", "", basename(file))),
          word = sub("_.*", "", sub(".*task-[0-9]_", "", basename(file))),
          ID = sub("_task.*", "", basename(file)))
+# save the file paths to run whisper on argon bash for loop?
+write_lines(all.files$file, "data/derivatives/cropped-audio-files-for-whisper")
 
 # run whisper on these files. whisper runs only on cropped tasks, not the full audio
 registerDoMC(cores = 6)
-foreach(i = 1:nrow(all.files)) %dopar% {
+# foreach(i = 1:nrow(all.files)) %dopar% {
+foreach(i = 266:272) %dopar% {
   n.dir <- paste0(project.dir, "/", "data/derivatives/PS-VC_transcription/", all.files$ID[i])
   system(paste0("mkdir -p ", n.dir))
   cmd <- paste("whisper",
@@ -69,11 +72,22 @@ t13.transcriptions <- left_join(all.transcriptions,
   mutate(text = str_replace_all(text, "\\.", ""),
          text = str_replace_all(text, "-", ""),
          text = str_replace_all(text, ",", ""))  %>% # Remove commas
-  filter(text != "")
+  filter(nchar(text) > 0) %>%
+  group_by(ID, task_order) %>%
+  arrange(.by_group = T)
 t24.transcriptions <- left_join(all.transcriptions, 
                                 ps.vc.metadata %>% mutate(task_order = c(1:nrow(ps.vc.metadata))) %>% select(-task_num), 
                                 relationship = "many-to-many") %>%
-  filter(task %in% c("2","4")) 
+  filter(task %in% c("2","4"))  %>%
+  group_by(ID, task_order) %>%
+  arrange(.by_group = T)
+# save combined transcriptions
+write_tsv(t13.transcriptions, "data/derivatives/PS-VC_transcription/task-1-and-3-all-together-whisper-transcription-raw.tsv")
+write_tsv(t24.transcriptions, "data/derivatives/PS-VC_transcription/task-2-and-4-all-together-whisper-transcription-raw.tsv")
+################################################################################
+# after saving the files combined, you should manually revise the transcription
+# read the revised version and keep it for downstream analysis
+
 ################################################################################
 # extract "um"
 ums <- t13.transcriptions %>%
@@ -81,18 +95,6 @@ ums <- t13.transcriptions %>%
   group_by(word, ID) %>%
   dplyr::summarise(count = n())
 ################################################################################
-# look at categories of words said
-tmp <- cbind(t13.transcriptions,
-             nrc = syuzhet::get_nrc_sentiment(t13.transcriptions$text),
-             sentimentr::profanity(t13.transcriptions$text)%>%select(profanity_count),
-             lingmatch = lingmatch::lma_meta(t13.transcriptions$text),
-             lingmatch = lingmatch::lma_termcat(t13.transcriptions$text)) %>%
-  select(-c(lingmatch.words, lingmatch.unique_words, lingmatch.clauses, lingmatch.sentences, 
-            lingmatch.words_per_clause,
-            lingmatch.words_per_sentence, lingmatch.characters_per_word, lingmatch.syllables_per_word,
-            lingmatch.type_token_ratio))
-# save?
-write_rds(tmp, "data/derivatives/PS-VC_transcription/task-1-3-all-together.rds")
 ################################################################################
 
 
