@@ -53,7 +53,7 @@ wisc <- rbind(wisc.IV %>% select(1:4, V_P, wisc, FSIQ), wisc.V %>% select(1:4, V
 p1 <- wisc %>% 
   ggplot(aes(x=V_P, fill = adhd_or_asd)) +
   geom_histogram() +
-  ggh4x::facet_grid2(rows = vars(sex), cols = vars(wisc), scales = "free", space = "free", independent = T) +
+  ggh4x::facet_grid2(rows = vars(sex), scales = "free", space = "free", independent = T) +
   scale_fill_manual(values = ten.colors) +
   labs(x= "VCI Score - PSI Score", title = "labeled by diagnosis group")
 
@@ -66,7 +66,7 @@ p2 <- wisc %>%
          age_cat = factor(age_cat, levels = c("<=10", "11-20", "21-30", "31-40", ">40"))) %>%
   ggplot(aes(x=V_P, fill = age_cat)) +
   geom_histogram() +
-  ggh4x::facet_grid2(rows = vars(sex), cols = vars(wisc), scales = "free", space = "free", independent = T) +
+  ggh4x::facet_grid2(rows = vars(sex), scales = "free", space = "free", independent = T) +
   scale_fill_manual(values = ten.colors) +
   labs(x= "VCI Score - PSI Score", title = "labeled by age group")
 
@@ -81,12 +81,12 @@ p3 <- wisc %>%
          FSIQ_cat = factor(FSIQ_cat, levels = c("<=80", "81-90", "91-100", "101-110", "111-120", "121-130", "131-140", ">140"))) %>%
   ggplot(aes(x=V_P, fill = FSIQ_cat)) +
   geom_histogram() +
-  ggh4x::facet_grid2(rows = vars(sex), cols = vars(wisc), scales = "free", space = "free", independent = T) +
+  ggh4x::facet_grid2(rows = vars(sex), scales = "free", space = "free", independent = T) +
   scale_fill_manual(values = ten.colors) +
   labs(x= "VCI Score - PSI Score", title = "labeled by FSIQ group")
 wisc.p <- patchwork::wrap_plots(p1,p2,p3, ncol = 3)
 ggsave(wisc.p, filename = "figs/WISC-VC-PS-stats.png", bg = "white",
-       width = 16, height = 7, units = "in", dpi = 320)
+       width = 12, height = 7, units = "in", dpi = 320)
 
 ####
 
@@ -110,7 +110,7 @@ wais <- rbind(wais.III %>% select(1:4, V_P, wais, FSIQ), wais.IV %>% select(1:4,
 p1 <- wais %>% 
   ggplot(aes(x=V_P, fill = adhd_or_asd)) +
   geom_histogram() +
-  ggh4x::facet_grid2(rows = vars(sex), cols = vars(wais), scales = "free", space = "free", independent = T) +
+  ggh4x::facet_grid2(rows = vars(sex), scales = "free", space = "free", independent = T) +
   scale_fill_manual(values = ten.colors) +
   labs(x= "VCI Score - PSI Score", title = "labeled by diagnosis group")
 
@@ -123,7 +123,7 @@ p2 <- wais %>%
          age_cat = factor(age_cat, levels = c("<=10", "11-20", "21-30", "31-40", ">40"))) %>%
   ggplot(aes(x=V_P, fill = age_cat)) +
   geom_histogram() +
-  ggh4x::facet_grid2(rows = vars(sex), cols = vars(wais), scales = "free", space = "free", independent = T) +
+  ggh4x::facet_grid2(rows = vars(sex), scales = "free", space = "free", independent = T) +
   scale_fill_manual(values = ten.colors) +
   labs(x= "VCI Score - PSI Score", title = "labeled by age group")
 
@@ -138,11 +138,11 @@ p3 <- wais %>%
          FSIQ_cat = factor(FSIQ_cat, levels = c("<=80", "81-90", "91-100", "101-110", "111-120", "121-130", "131-140", ">140"))) %>%
   ggplot(aes(x=V_P, fill = FSIQ_cat)) +
   geom_histogram() +
-  ggh4x::facet_grid2(rows = vars(sex), cols = vars(wais), scales = "free", space = "free", independent = T) +
+  ggh4x::facet_grid2(rows = vars(sex), scales = "free", space = "free", independent = T) +
   scale_fill_manual(values = ten.colors) +
   labs(x= "VCI Score - PSI Score", title = "labeled by FSIQ group")
 wais.p <- patchwork::wrap_plots(p1,p2,p3, ncol = 3)
 ggsave(wais.p, filename = "figs/WAIS-VC-PS-stats.png", bg = "white",
-       width = 16, height = 7, units = "in", dpi = 320)
+       width = 12, height = 7, units = "in", dpi = 320)
 
 #####
