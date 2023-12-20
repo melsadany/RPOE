@@ -149,17 +149,16 @@ ggsave(p.a, filename = "figs/corr_iq-nih-PS-VC-acoustics.png",
 ################################################################################
 # correlation between PS-VC word responses and iq-nih
 vc.transcription <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 4) %>%
-  mutate(text = ifelse(is.na(text_revised), text,
+  mutate(text = ifelse(is.na(text_revised), text, # this section is for the manually checked transcription
                        ifelse(grepl("F", text_revised)&nchar(text_revised)==1, NA,
                               ifelse(grepl("W\\?", text_revised), NA, text_revised)))) %>%
   mutate(word = ifelse(is.na(word_revised), word, word_revised)) %>%
   drop_na(text) %>%
-  filter(!(grepl("um", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("uh", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("oh", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("eh", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("hmm", text, ignore.case = T)&nchar(text)==3)) %>%
-  select(te_id=ID, task, task_order, word, text)
+  mutate(text = tolower(text)) %>%
+  filter(!text %in% c("uh", "um", "oh", "eh", "hmm", "hmmm")) %>% # drop the uh/hmm/um from text analysis
+  select(te_id=ID, task, task_order, word, text) %>%
+  filter(word != text) %>% #drop the words that are exactly the same as the prompt word
+  distinct() # only keep unique words and drop repeated by the same participant in the same task/word
 # look at categories of words said
 vc.analyzed <- cbind(vc.transcription,
              nrc = syuzhet::get_nrc_sentiment(vc.transcription$text),
@@ -170,7 +169,7 @@ vc.analyzed <- cbind(vc.transcription,
             lingmatch.words_per_clause,
             lingmatch.words_per_sentence, lingmatch.characters_per_word, lingmatch.syllables_per_word,
             lingmatch.type_token_ratio))
-# get word embeddings
+# get openai word embeddings
 tmp <- getEmbedding(vc.transcription$text)
 all <- cbind(vc.analyzed, tmp)
 # save?
@@ -184,11 +183,7 @@ ums <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 4) %>%
                               ifelse(grepl("W\\?", text_revised), NA, text_revised)))) %>%
   mutate(word = ifelse(is.na(word_revised), word, word_revised)) %>%
   drop_na(text) %>%
-  filter((grepl("um", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("uh", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("oh", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("eh", text, ignore.case = T)&nchar(text)==2)|
-           (grepl("hmm", text, ignore.case = T)&nchar(text)==3)) %>%
+  filter(text %in% c("uh", "um", "oh", "eh", "hmm", "hmmm")) %>%
   group_by(ID) %>%
   dplyr::summarise(ums_count = n()) %>%
   rename(te_id=ID) %>%
@@ -261,21 +256,24 @@ ggsave(pp, filename = paste0("figs/corr_iq-nih-PS-VC-language-features.png"),
 ################################################################################
 all <- read_rds("data/derivatives/ps-vc-text-analyzed-and-embedded.rds") %>%
   mutate(text=tolower(text))
-# all <- all %>%
-#   mutate_at(.vars = vars(c(40:ncol(all))), .funs = function(x) scale(x, scale=T, center = T))
-# identify how far is the word mentioned from the task word
-task.emb.r <- cbind(ps.vc.metadata, getEmbedding(ps.vc.metadata$word))
-task.emb <- task.emb.r %>%
-  filter(task_num==1) 
-# similarity using my openai embeddings
-all2 <- all[,40:ncol(all)]
-colnames(all2) <- paste0("Dim", colnames(all2), "_texts")
-task.emb2 <- full_join(all %>% select(word),
-                       task.emb) %>%
-  select(-c(1:5))
-colnames(task.emb2) <- paste0("Dim", colnames(task.emb2), "_texts")
-similarity2 <- text::textSimilarity(all2, 
-                                    task.emb2)
+################################################################################
+# # get cosine similarity using openai embeddings
+# # drop this section, it's dumb
+# # all <- all %>%
+# #   mutate_at(.vars = vars(c(40:ncol(all))), .funs = function(x) scale(x, scale=T, center = T))
+# # identify how far is the word mentioned from the task word
+# task.emb.r <- cbind(ps.vc.metadata, getEmbedding(ps.vc.metadata$word))
+# task.emb <- task.emb.r %>%
+#   filter(task_num==1)
+# # similarity using my openai embeddings
+# all2 <- all[,40:ncol(all)]
+# colnames(all2) <- paste0("Dim", colnames(all2), "_texts")
+# task.emb2 <- full_join(all %>% select(word),
+#                        task.emb) %>%
+#   select(-c(1:5))
+# colnames(task.emb2) <- paste0("Dim", colnames(task.emb2), "_texts")
+# similarity2 <- text::textSimilarity(all2,
+#                                     task.emb2)
 ######
 # similarity using the text package embeddings and function
 library(text)
@@ -283,6 +281,7 @@ emb.text <- textEmbed(all$text)
 emb.text.m <- emb.text$texts$texts
 emb.word <- textEmbed(all$word)
 emb.word.m <- emb.word$texts$texts
+save(emb.text, emb.text.m, emb.word, emb.word.m, file = "data/derivatives/word-embedding-from-text-package.rda")
 similarity2 <- text::textSimilarity(emb.text.m,emb.word.m)
 ######
 string.sim <- all %>%
@@ -297,8 +296,8 @@ p10 <- string.sim %>%
   geom_tile() +
   scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1])+
   labs(y="ID", title = "average similarity of words said in comparison to the prompt word",
-       # caption = "cosine similarity calculated from:\n\t 768 embdedding vectors ectracted by text::textEmbed()")+
-       caption = "cosine similarity calculated from:\n\t 1536 embdedding vectors ectracted by openai")+
+       caption = "cosine similarity calculated from:\n\t 768 embdedding vectors ectracted by text::textEmbed()")+
+       # caption = "cosine similarity calculated from:\n\t 1536 embdedding vectors ectracted by openai")+
   my.guides
 sim <- string.sim %>%
   group_by(te_id, word) %>%
@@ -328,8 +327,8 @@ p11 <- corr.table(m125 %>% select(colnames(m1), colnames(m2), -ends_with("id")),
                         "*\t\tpval<0.05")) +
   my.guides
 p1011 <- patchwork::wrap_plots(p10,p11)
-# ggsave(p1011, filename = "figs/corr_iq-nih-PS-VC-word-similarity.png",
-ggsave(p1011, filename = "figs/corr_iq-nih-PS-VC-word-similarity-openai.png",
+ggsave(p1011, filename = "figs/corr_iq-nih-PS-VC-word-similarity.png",
+# ggsave(p1011, filename = "figs/corr_iq-nih-PS-VC-word-similarity-openai.png",
        width = 10, height = 9, units = "in", bg = "white", dpi = 320)
 #####
 
