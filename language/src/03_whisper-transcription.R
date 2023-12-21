@@ -10,7 +10,8 @@ project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language"
 setwd(project.dir)
 ################################################################################
 #  read the PS_VC task metadata
-ps.vc.metadata.r <- read_csv("data/derivatives/PS_VC-task-metadata.csv")
+ps.vc.metadata.r <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 2) %>%
+  filter(task_v==2)
 ps.vc.metadata <- ps.vc.metadata.r %>%
   mutate(start_in_sec = start_in_sec - ps.vc.metadata.r$start_in_sec[1],
          end_in_sec = end_in_sec - ps.vc.metadata.r$start_in_sec[1]) %>%
@@ -25,10 +26,17 @@ all.files <- data.frame(file = list.files(p.files$file, pattern = "task", full.n
 # save the file paths to run whisper on argon bash for loop?
 write_lines(all.files$file, "data/derivatives/cropped-audio-files-for-whisper")
 
+######
+# if running for a new/specific participant
+pid <- "5335"
+all.files <- all.files %>%
+  filter(ID==pid)
+######
+
 # run whisper on these files. whisper runs only on cropped tasks, not the full audio
 registerDoMC(cores = 6)
-# foreach(i = 1:nrow(all.files)) %dopar% {
-foreach(i = 266:272) %dopar% {
+foreach(i = 1:nrow(all.files)) %dopar% {
+# foreach(i = 266:272) %dopar% {
   n.dir <- paste0(project.dir, "/", "data/derivatives/PS-VC_transcription/", all.files$ID[i])
   system(paste0("mkdir -p ", n.dir))
   cmd <- paste("whisper",

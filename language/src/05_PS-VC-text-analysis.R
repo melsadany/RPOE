@@ -213,8 +213,9 @@ tmp %>%
 ggsave(filename = "figs/word-count-stats-per-task.png", bg = "white",
        width = 6, height = 5, units = "in", dpi = 320)
 ##############################################################################
-# calculate the optimal and actual trajectories per participant for first 5 words per task/word
-divergence <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
+# calculate the full euclidean distance traveled per task, and normalize it by number of words
+# this also considers at least 5 words said per task to get the euc distance
+euc <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
   id <- unique(tmp$te_id)[i]
   df1 <- tmp %>% 
     filter(te_id == id) %>%
@@ -233,8 +234,130 @@ divergence <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
       select(-c(te_id, word, w_order, task)) %>%
       column_to_rownames("w1")
     df3 <- df3[,rownames(df3)]
-    # you only need to keep the first 5 words said by task/word
-    df3 <- df3[1:5,1:5]
+    ######
+    # get the overall euclidean distance and divide it by number of words
+    text.to.look <- unique(rownames(df3))
+    full.dist <- 0
+    for (g in 1:(length(text.to.look)-1)) {
+      t0 <- text.to.look[g]
+      t1 <- text.to.look[g+1]
+      euc.dist <- dist(rbind(as.numeric(emb.text.m%>%
+                                          filter(te_id==id,word==w0,text==t0)%>%
+                                          select(starts_with("Dim"))),
+                             as.numeric(emb.text.m%>%
+                                          filter(te_id==id,word==w0,text==t1)%>%
+                                          select(starts_with("Dim")))))
+      full.dist <- full.dist + euc.dist
+    }
+    full.dist.n <- as.numeric(full.dist)/nrow(df3)
+    ######
+    df6 <- data.frame(te_id = id,
+                      word = w0,
+                      full_euc_dist = as.numeric(full.dist),
+                      full_euc_dist_normalized = as.numeric(full.dist.n))
+    return(df6)
+  }
+  return(word.opt)
+}
+# drop task/word that have less than 5 participants that match the min of 5 words criteria
+task.word.valid.euc <- euc %>%
+  filter(te_id %in% m1.m2$te_id) %>%
+  group_by(word) %>%
+  dplyr::summarise(count = n()) %>%
+  filter(count>=5)
+euc <- euc %>%
+  filter(word %in% task.word.valid.euc$word)
+# make the euc in wide format
+t1 <- euc %>%
+  pivot_wider(names_from = word, values_from = full_euc_dist_normalized, id_cols = te_id)
+# get the average euc distance traveled by participant per task 1&3
+overalls <- euc %>%
+  mutate(task = ifelse(nchar(word)==1, 3,1)) %>%
+  group_by(te_id, task) %>%
+  dplyr::summarise(euc=mean(full_euc_dist_normalized)) %>%
+  pivot_longer(cols = c(euc)) %>% 
+  mutate(name2 = paste0("_average_",name,"_t", task)) %>%
+  filter(grepl("euc", name2)) %>%
+  pivot_wider(names_from = "name2", values_from = "value", id_cols = "te_id")
+# combine with IQ, and get the correlations
+m124 <- inner_join(m1.m2, inner_join(t1,overalls))
+p1 <- corr.table(m124 %>% select(colnames(m1.m2), -ends_with("id")),
+                 m124 %>% select(colnames(t1),colnames(overalls), -ends_with("id")),
+                 method = "spearman") %>%
+  mutate(FDR = p.adjust(pval, method = "fdr")) %>%
+  filter(V1 %in% colnames(m1.m2), V2 %in% c(colnames(t1),colnames(overalls)))  %>%
+  mutate(V1 = sub("_age_corrected_standard_score", "_NIH", V1)) %>%
+  mutate(cat2 = ifelse(grepl("NIH", V1), "NIH-TB", "IQ"),
+         task = ifelse(nchar(V2)==1|grepl("t3",V2),"task 3","task 1")) %>%
+  mutate(V1 = sub("_NIH", "", V1),
+         V1 = factor(V1, levels = unique(V1))) %>%
+  ggplot(aes(x=V1, y=V2, fill = r, label = ifelse(FDR < 0.05, "**", ifelse(pval<0.05, "*",""))))+
+  geom_tile()+
+  geom_text(size = 3, color = "white")+
+  ggh4x::facet_grid2(cols = vars(cat2),
+                     rows = vars(task),
+                     scales = "free", space = "free") +
+  scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) +
+  labs(x = "", y = "",
+       title = "correlation between normalized Euclidean distance and IQ",
+       caption = paste0("Euclidean distance is calculated as the overall traveled distance by participant in each task/word","\n",
+                        "The Euclidean distance was then normalized by how many words said by a participant in this task/word","\n",
+                        "The data was filtered to only keep participants with at least 5 words in response to task/word","\n",
+                        "The task/word were filtered to keep ones with at least 5 participants matching the prev. criteria","\n",
+                        # "n(samples): ", nrow(m124), "\n",
+                        "**   FDR<0.05", "\n",
+                        "*    pval<0.05")) +
+  my.guides
+# this is how many participant were kept for analysis per task/word in euc
+p2 <- euc %>%
+  group_by(word) %>%
+  dplyr::summarise(count = n()) %>%
+  mutate(task = ifelse(nchar(word)==1, "task 3", "task 1")) %>%
+  ggplot(aes(x=word, y = count)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = c(5,10,15,20,25), linetype=2, color = "red")+
+  ggh4x::facet_grid2(cols = vars(task), scales = "free", space = "free")+
+  labs(x="", y="number of valid participants")
+# distribution of euc distance per task/word
+p3 <- euc %>%
+  mutate(task = ifelse(nchar(word)==1,"task 3", "task 1"),
+         word = factor(reorder(word, desc(task)))) %>%
+  ggplot(aes(x=full_euc_dist_normalized))+
+  geom_histogram()+
+  facet_wrap(~word)
+
+patchwork::wrap_plots(p1,p2,p3,ncol = 1,heights = c(2,1,2))
+ggsave("figs/corr-between-euc-and-iq.png", bg = "white",
+       width = 8, height = 14, units = "in", dpi = 320)
+##############################################################################
+# calculate the optimal and actual trajectories per participant for first 10 words per task/word
+divergence <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
+  id <- unique(tmp$te_id)[i]
+  df1 <- tmp %>% 
+    filter(te_id == id) %>%
+    pivot_longer(cols = colnames(tmp)[-1]) %>%
+    mutate(task = ifelse(nchar(name)==1,3,1))%>%filter(task==3)%>% # only look at task 3 here for divergence
+    filter(value >=10)
+  words.to.keep <- unique(df1$name)
+  df2 <- emb.text.m %>%
+    filter(te_id==id,
+           word %in% words.to.keep)
+  if (length(words.to.keep)==0) {
+    return(NULL)
+  }
+  # loop over words here
+  word.opt <- foreach(j = 1:length(words.to.keep), .combine = rbind) %dopar% {
+    w0 <- words.to.keep[j]
+    df3 <- pairs.sim %>%
+      filter(te_id==id, word==w0) %>%
+      pivot_wider(names_from = "w2", values_from = "cos_similarity") %>%
+      select(-c(te_id, word, w_order, task)) %>%
+      column_to_rownames("w1")
+    df3 <- df3[,rownames(df3)]
+    ######
+    # for the optimal and actual path
+    # you only need to keep the first 10 words said by task/word
+    df3 <- df3[1:10,1:10]
     # get the optimal trajectory
     library(TSP)
     distance.matrix <- as.dist(1 - df3) # convert cosine similarity matrix to a distance matrix
@@ -251,24 +374,94 @@ divergence <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
     }
     opt.dist <- sum(df5$distance) # this is the optimal distance for this word for this participant
     act.order <- data.frame(w1 = rownames(df3)[-(nrow(df3))], # make a df with actual path order
-                            w1_order = c(1:4),
+                            w1_order = c(1:(nrow(df3)-1)),
                             w2 = colnames(df3)[-1],
-                            w2_order = c(2:5),
+                            w2_order = c(2:nrow(df3)),
                             distance = NA)
     for (m in 1:nrow(act.order)) { # get actual path distances
       act.order$distance[m] <- (1-df3[act.order$w1_order[m],act.order$w2_order[m]])
     }
     act.dist <- sum(act.order$distance) # this is the actual distance for this word for this participant
+    #######
     df6 <- data.frame(te_id = id,
                       word = w0,
                       opt_dist = opt.dist,
                       act_dist = act.dist,
-                      global_divergence = (act.dist - opt.dist))
+                      global_divergence = (act.dist - opt.dist)
+                      # global_divergence_normalized = (act.dist - opt.dist)/nrow(df3)
+                      )
     return(df6)
   }
   return(word.opt)
 }
+# drop task/word that have less than 5 participants that match the min of 5 words criteria
+task.word.valid.div <- divergence %>%
+  filter(te_id %in% m1.m2$te_id) %>%
+  group_by(word) %>%
+  dplyr::summarise(count = n()) %>%
+  filter(count>=5)
+divergence <- divergence %>%
+  filter(word %in% task.word.valid.div$word)
+# make the divergence in wide format
+t1 <- divergence %>%
+  pivot_wider(names_from = word, values_from = global_divergence, id_cols = te_id)
+# get the average euc distance traveled by participant per task 1&3
+overalls <- divergence %>%
+  mutate(task = ifelse(nchar(word)==1, 3,1)) %>%
+  group_by(te_id, task) %>%
+  dplyr::summarise(div=mean(global_divergence)) %>%
+  pivot_longer(cols = c(div)) %>% 
+  mutate(name2 = paste0("_average_",name,"_t", task)) %>%
+  filter(grepl("div", name2)) %>%
+  pivot_wider(names_from = "name2", values_from = "value", id_cols = "te_id")
+m124 <- inner_join(m1.m2, inner_join(t1,overalls))
+p1 <- corr.table(m124 %>% select(colnames(m1.m2), -ends_with("id")),
+           m124 %>% select(colnames(t1),colnames(overalls), -ends_with("id")),
+           method = "spearman") %>%
+  mutate(FDR = p.adjust(pval, method = "fdr")) %>%
+  filter(V1 %in% colnames(m1.m2), V2 %in% c(colnames(t1),colnames(overalls)))  %>%
+  mutate(V1 = sub("_age_corrected_standard_score", "_NIH", V1)) %>%
+  mutate(cat2 = ifelse(grepl("NIH", V1), "NIH-TB", "IQ"),
+         task = ifelse(nchar(V2)==1|grepl("t3",V2),"task 3","task 1")) %>%
+  mutate(V1 = sub("_NIH", "", V1),
+         V1 = factor(V1, levels = unique(V1))) %>%
+  ggplot(aes(x=V1, y=V2, fill = r, label = ifelse(FDR < 0.05, "**", ifelse(pval<0.05, "*",""))))+
+  geom_tile()+
+  geom_text(size = 3, color = "white")+
+  ggh4x::facet_grid2(cols = vars(cat2),
+                     rows = vars(task),
+                     scales = "free", space = "free") +
+  scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) +
+  labs(x = "", y = "",
+       title = "correlation between divergence and IQ",
+       caption = paste0("Divergence is calculated as (actual_path - optimal_path) in each task/letter","\n",
+                        "The data was filtered to only keep participants with at least 10 words in response to task/letter","\n",
+                        "The task/letter were filtered to keep ones with at least 5 participants matching the prev. criteria","\n",
+                        # "n(samples): ", nrow(m124), "\n",
+                        "**   FDR<0.05", "\n",
+                        "*    pval<0.05")) +
+  my.guides
+# this is how many participant were kept for analysis per task/word in divergence
+p2 <- divergence %>%
+  group_by(word) %>%
+  dplyr::summarise(count = n()) %>%
+  mutate(task = ifelse(nchar(word)==1, "task 3", "task 1")) %>%
+  ggplot(aes(x=word, y = count)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = c(5,10,15), linetype=2, color = "red")+
+  ggh4x::facet_grid2(cols = vars(task), scales = "free", space = "free")+
+  labs(x="", y="number of valid participants")
+# distribution of divergence per task/word
+p3 <- divergence %>%
+  mutate(task = ifelse(nchar(word)==1,"task 3", "task 1"),
+         word = factor(reorder(word, desc(task)))) %>%
+  ggplot(aes(x=global_divergence))+
+  geom_histogram()+
+  facet_wrap(~word,nrow = 1)
 
+patchwork::wrap_plots(p1,p2,p3,ncol = 1,heights = c(1,1,1))
+ggsave("figs/corr-between-divergence-and-iq.png", bg = "white",
+       width = 8, height = 10, units = "in", dpi = 320)
 ##############################################################################
 
 
