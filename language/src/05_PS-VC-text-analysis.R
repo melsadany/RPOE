@@ -11,7 +11,8 @@ project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language"
 setwd(project.dir)
 ################################################################################
 #  read the PS_VC task metadata
-ps.vc.metadata <- read_csv("data/derivatives/PS_VC-task-metadata.csv") %>%
+ps.vc.metadata <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 2) %>%
+  filter(task_v==2) %>%
   select(task_num, word) %>%
   rownames_to_column("task_order") %>% mutate(task_order = as.numeric(task_order))
 # keep participants of interest

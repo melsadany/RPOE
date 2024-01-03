@@ -12,7 +12,8 @@ project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language"
 setwd(project.dir)
 ################################################################################
 #  read the PS_VC task metadata
-ps.vc.metadata.r <- read_csv("data/derivatives/PS_VC-task-metadata.csv")
+ps.vc.metadata.r <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 2) %>%
+  filter(task_v==2)
 ps.vc.metadata <- ps.vc.metadata.r %>%
   mutate(start_in_sec = start_in_sec - ps.vc.metadata.r$start_in_sec[1],
          end_in_sec = end_in_sec - ps.vc.metadata.r$start_in_sec[1]) %>%

@@ -11,7 +11,8 @@ setwd(project.dir)
 ################################################################################
 #  read the PS_VC task metadata
 ps.vc.metadata.r <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 2) %>%
-  filter(task_v==2)
+  filter(task_v==1)
+  # filter(task_v==2)
 ps.vc.metadata <- ps.vc.metadata.r %>%
   mutate(start_in_sec = start_in_sec - ps.vc.metadata.r$start_in_sec[1],
          end_in_sec = end_in_sec - ps.vc.metadata.r$start_in_sec[1]) %>%
@@ -39,11 +40,14 @@ foreach(i = 1:nrow(all.files)) %dopar% {
 # foreach(i = 266:272) %dopar% {
   n.dir <- paste0(project.dir, "/", "data/derivatives/PS-VC_transcription/", all.files$ID[i])
   system(paste0("mkdir -p ", n.dir))
-  cmd <- paste("whisper",
+  cmd <- paste("whisper_timestamped",
                all.files$file[i], 
                "--model large-v3",
-               "--language English",
+               "--language en",
+               "--accurate",
+               "--punctuations_with_words False",
                "--verbose True",
+               "--detect_disfluencies True",
                "--output_format tsv",
                "--threads 1",
                "--output_dir", n.dir, 
@@ -62,7 +66,7 @@ for(j in 1:length(unique(all.files$ID))) {
 # combine whisper transcription files per participants
 whisper.files <- all.files %>%
   mutate(ID = sub("_task.*", "", basename(file))) %>%
-  mutate(file = sub("participants-response", "transcription", sub("\\.wav", ".tsv", file)))
+  mutate(file = sub("participants-response", "transcription", sub("\\.wav", ".wav.words.tsv", file)))
 registerDoMC(cores = 3)
 all.transcriptions <- foreach(i = 1:nrow(whisper.files), .combine = rbind) %dopar% {
   t <- read_tsv(whisper.files$file[i]) %>%
@@ -76,10 +80,10 @@ t13.transcriptions <- left_join(all.transcriptions,
                                 ps.vc.metadata %>% mutate(task_order = c(1:nrow(ps.vc.metadata))) %>% select(-task_num), 
                                 relationship = "many-to-many") %>%
   filter(task %in% c("1","3")) %>%
-  separate_rows(text, sep = "\\s|(?<=[0-9])(?=[^0-9])") %>%
-  mutate(text = str_replace_all(text, "\\.", ""),
-         text = str_replace_all(text, "-", ""),
-         text = str_replace_all(text, ",", ""))  %>% # Remove commas
+  # mutate(text = str_replace_all(text, "\\.", ""),
+  #        text = str_replace_all(text, "-", ""),
+  #        text = str_replace_all(text, ",", ""))  %>% # Remove commas
+  filter(text != "[*]") %>%
   filter(nchar(text) > 0) %>%
   group_by(ID, task_order) %>%
   arrange(.by_group = T)
@@ -90,8 +94,8 @@ t24.transcriptions <- left_join(all.transcriptions,
   group_by(ID, task_order) %>%
   arrange(.by_group = T)
 # save combined transcriptions
-write_tsv(t13.transcriptions, "data/derivatives/PS-VC_transcription/task-1-and-3-all-together-whisper-transcription-raw.tsv")
-write_tsv(t24.transcriptions, "data/derivatives/PS-VC_transcription/task-2-and-4-all-together-whisper-transcription-raw.tsv")
+write_tsv(t13.transcriptions, "data/derivatives/PS-VC_transcription/task-1-and-3-all-together-whisper-transcription-raw-timestamped.tsv")
+write_tsv(t24.transcriptions, "data/derivatives/PS-VC_transcription/task-2-and-4-all-together-whisper-transcription-raw-timestamped.tsv")
 ################################################################################
 # after saving the files combined, you should manually revise the transcription
 # read the revised version and keep it for downstream analysis
