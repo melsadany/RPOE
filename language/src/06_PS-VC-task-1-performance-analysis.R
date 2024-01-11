@@ -21,18 +21,20 @@ p.of.int <- participants.metadata %>%
   filter(work_on_2 != "F")
 ################################################################################
 # read tests data, and combine nih-tb and iq
-nih.tb <- read_csv("data/derivatives/nih-tb_clean_120623.csv") %>%
+nih.tb <- read_csv("data/derivatives/nih-tb_clean.csv") %>%
   select(dev_id, 
          ends_with("age_corrected_standard_score")) %>%
   drop_na()
-iq <- read_csv("data/derivatives/wisc-and-wais_clean_120623.csv") %>%
+iq <- read_csv("data/derivatives/wisc-and-wais_clean.csv") %>%
   select(dev_id, te_id,
          paste0(c("PSI", "WM", "VCI"), "_composite_score"),
          # ends_with("composite_score"),
          FSIQ, 
          SI, VC, BD, VP, MR, 
          #FW, PS, IN, AR, 
-         DS, CD, SS)
+         DS, CD, SS) %>%
+  mutate(VCI_PSI = VCI_composite_score - PSI_composite_score,
+         abs_VCI_PSI = abs(VCI_composite_score - PSI_composite_score))
 m1.m2 <- inner_join(nih.tb, iq) %>%
   mutate(te_id=ifelse(is.na(te_id), dev_id, te_id)) %>%
   rename(te_id = te_id)
@@ -440,8 +442,61 @@ if(initDict()) {
 ################################################################################
 
 ################################################################################
+################################################################################
+########################## closeness to target word ############################
+################################################################################
+################################################################################
+# get a probability of being on target to the prompt word using embeddings as input
+# and prompt word among inputs
+
+# get embeddings of all words said by participants in response to a prompt
+# combine that with the embeddings for the prompt word itself
+# get 2 clusters out of this
+  prompt.emb <- textEmbed(unique(all$word))
+prompt.emb <- cbind(all %>%
+                      distinct(word, task),
+                    prompt.emb$texts$texts)
+w <- unique(all$word)[1]
+t1 <- emb.text.m %>%
+  # filter(word == w) %>%
+  filter(task ==1) %>%
+  select(te_id, text, word, starts_with("Dim"))
+center.emb <- prompt.emb %>%
+  # filter(word == w) %>%
+  filter(task ==1) %>%
+  select(starts_with("Dim"))
+t2 <- rbind(prompt.emb %>%
+              # filter(word == w) %>%
+              filter(task ==1) %>%
+              mutate(te_id = "PROMPT", text = word) %>%
+              select(te_id, text, word, starts_with("Dim")),
+            t1)
+
+t2 %>%
+  mutate(t = ifelse(te_id=="PROMPT", T, F)) %>%
+  ggplot(aes(x=Dim1_texts, y=Dim2_texts, color = t))+
+  geom_point()+
+  facet_wrap(~word)
+
+km <- kmeans(t2[,-c(1:2)], 
+             centers = 20)
+t3 <- t2[,1:2] %>%
+  mutate(cluster = km$cluster)  %>%
+  mutate(
+    Distance_to_Center = sqrt(rowSums((t1[,-c(1:2)] - as.vector(center.emb))^2)),
+    Probability_to_Center = 1 - Distance_to_Center / max(Distance_to_Center)
+  )
+###
+
 
 ################################################################################
+
+################################################################################
+################################################################################
+#########################  #########################
+################################################################################
+################################################################################
+# 
 
 ################################################################################
 

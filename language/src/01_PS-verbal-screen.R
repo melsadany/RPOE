@@ -302,9 +302,9 @@ ps.vc.metadata <- ps.vc.metadata.r %>%
 # keep participants of interest
 participants.metadata <- readxl::read_excel("data/raw/RPOE_meta.xlsx", sheet = 1)
 # change this to every new participant
-pid <- "5335"
+pid <- participants.metadata$te_id[43:44]
 p.of.int <- participants.metadata %>% 
-  filter(ID == pid) %>%
+  filter(te_id %in% pid) %>%
   mutate(duration = format(as.POSIXct(duration), format = "%H:%M:%S"),
          first_beep = format(as.POSIXct(first_beep), format = "%H:%M:%S"),
          start = as.numeric(sub("^\\d{2}:(\\d{2}):\\d{2}$", "\\1", first_beep)),
@@ -312,7 +312,7 @@ p.of.int <- participants.metadata %>%
          duration_s = as.numeric(sub("^\\d{2}:(\\d{2}):\\d{2}$", "\\1", duration)),
          duration_in_sec = (60*duration_m)+duration_s
   ) %>%
-  select(ID, starts_with("duration"), start, audio, video, `all tasks completed`)
+  select(te_id, starts_with("duration"), start, audio, video, `all tasks completed`)
 ################################################################################
 ################################################################################
 # copy ps-vc file to my dir, make the mp3 file, and crop per task
@@ -320,7 +320,7 @@ data.dir <- "/Dedicated/jmichaelson-sdata/MRI/RPOE"
 my.data.dir <- paste0(project.dir, "/data/raw/PS_vc")
 for (i in 1:nrow(p.of.int)) {
   # i = 1
-  pid <- p.of.int$ID[i]
+  pid <- p.of.int$te_id[i]
   raw.a.file <- gsub(" ", fixed = T, "\\ ", 
                      list.files(paste0(data.dir, "/", pid, 
                                        "/phenotype/PS_verbal_screen"),

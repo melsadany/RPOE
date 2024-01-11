@@ -21,18 +21,20 @@ p.of.int <- participants.metadata %>%
   filter(work_on_2 != "F")
 ################################################################################
 # read tests data, and combine nih-tb and iq
-nih.tb <- read_csv("data/derivatives/nih-tb_clean_120623.csv") %>%
+nih.tb <- read_csv("data/derivatives/nih-tb_clean.csv") %>%
   select(dev_id, 
          ends_with("age_corrected_standard_score")) %>%
   drop_na()
-iq <- read_csv("data/derivatives/wisc-and-wais_clean_120623.csv") %>%
+iq <- read_csv("data/derivatives/wisc-and-wais_clean.csv") %>%
   select(dev_id, te_id,
          paste0(c("PSI", "WM", "VCI"), "_composite_score"),
          # ends_with("composite_score"),
          FSIQ, 
          SI, VC, BD, VP, MR, 
          #FW, PS, IN, AR, 
-         DS, CD, SS)
+         DS, CD, SS) %>%
+  mutate(VCI_PSI = VCI_composite_score - PSI_composite_score,
+         abs_VCI_PSI = abs(VCI_composite_score - PSI_composite_score))
 m1.m2 <- inner_join(nih.tb, iq) %>%
   mutate(te_id=ifelse(is.na(te_id), dev_id, te_id)) %>%
   rename(te_id = te_id)
@@ -89,7 +91,8 @@ pairs.sim <- foreach(i = 1:length(unique(emb.text.m$te_id)), .combine = rbind) %
 write_rds(pairs.sim, paste0("data/derivatives/pairs-sim-by-word-by-participant-task-",t,".rds"))
 pairs.sim.1 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-1.rds"))
 pairs.sim.3 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-3.rds"))
-pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3))
+pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3)) %>%
+  filter(w1 != w2)
 ################################################################################
 # make a heatmap for each participant with 
 p <- list()
@@ -132,7 +135,7 @@ ggsave(bg = "white", filename = "figs/distribution-of-cos-similarity-of-all-pair
 cons.pairs <- pairs.sim %>%
   left_join(w2_order, relationship = "many-to-many") %>%
   filter(!(w_order==1&w2_order==1)) %>%
-  mutate(consec = ifelse(w_order==1&w2_order==2, T, F)) %>%
+  mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
   filter(consec == T)
 cons.pairs.mean <- cons.pairs %>%
   group_by(te_id, task) %>%
@@ -155,10 +158,10 @@ p1 <- corr.table(m123.1 %>% select(colnames(m1.m2), -ends_with("id")),
                      scales = "free", space = "free") +
   scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) +
   labs(x = "", y = "",
-       title = paste0("task: ",t),
+       title = paste0("task: ",1),
        caption = paste0("n(samples): ", nrow(m123.1), "\n",
-                        "**\t\tFDR<0.05", "\n",
-                        "*\t\tpval<0.05")) +
+                        "**   FDR<0.05", "\n",
+                        "*    pval<0.05")) +
   my.guides + theme(axis.text.x.bottom = element_text(angle = 0, hjust = 0.5))
 # do it for task 3
 m123.3 <- inner_join(m1.m2, cons.pairs.mean%>%filter(task==3))
@@ -179,15 +182,47 @@ p3 <- corr.table(m123.3 %>% select(colnames(m1.m2), -ends_with("id")),
   scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) +
   theme(axis.text.y.left = element_blank()) +
   labs(x = "", y = "",
-       title = paste0("task: ",t),
+       title = paste0("task: ",3),
        caption = paste0("n(samples): ", nrow(m123.3), "\n",
-                        "**\t\tFDR<0.05", "\n",
-                        "*\t\tpval<0.05")) +
+                        "**   FDR<0.05", "\n",
+                        "*    pval<0.05")) +
   my.guides + theme(axis.text.x.bottom = element_text(angle = 0, hjust = 0.5))
 
 p <- p1+p3
 ggsave(p, filename = "figs/correlation-between-consec-pairs-avg-cos-sim-and-iq.png",
        width = 6, height = 5, units = "in", bg = "white", dpi = 320)
+
+# can you plot the correlation between the consec. pair distance VS. the wait time between them?
+wait.time <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 4) %>%
+  mutate(text = ifelse(is.na(text_revised), text, # this section is for the manually checked transcription
+                       ifelse(grepl("F", text_revised)&nchar(text_revised)==1, NA,
+                              ifelse(grepl("W\\?", text_revised), NA, text_revised)))) %>%
+  mutate(word = ifelse(is.na(word_revised), word, word_revised)) %>%
+  drop_na(text) %>%
+  mutate(text = tolower(text)) %>%
+  filter(!text %in% c("uh", "um", "oh", "eh", "hmm", "hmmm")) %>% # drop the uh/hmm/um from text analysis
+  select(te_id=ID, task, task_order, word, text, start, end) %>%
+  filter(word != text) %>% #drop the words that are exactly the same as the prompt word
+  distinct(te_id, task, task_order, word, text, .keep_all = T) %>% # only keep unique words and drop repeated by the same participant in the same task/word
+  drop_na(start, end) # drop the words with no timestamps
+wait.time2 <- cbind(wait.time[-nrow(wait.time),]%>%select(1:4),
+                    w1 = wait.time$text[-nrow(wait.time)],
+                    w2 = wait.time$text[-1],
+                    w1_index = rownames(wait.time)[-nrow(wait.time)],
+                    w2_index = rownames(wait.time)[-1],
+                    wait=(wait.time$start[-1] - wait.time$end[-nrow(wait.time)])/1000) %>%
+  filter(wait>0)
+tmp <- inner_join(cons.pairs, wait.time2) %>%
+  left_join(m1.m2) %>%
+  drop_na(FSIQ)
+tmp %>% 
+  ggplot(aes(x=cos_similarity, y=wait)) +
+  geom_point(size=1)+
+  geom_smooth(method = "loess") +
+  ggpubr::stat_cor() +
+  labs(y="silence time between consec. pairs (secs)")
+ggsave(filename = "figs/corr-between-consec-pairs-cos-similarity-and-thinking-time.png", bg = "white",
+       width = 4, height = 4, units = "in", dpi = 360)
 ################################################################################
 # table of how many words said by participant in each task
 tmp <- all[,1:5] %>%
