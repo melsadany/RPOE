@@ -6,7 +6,7 @@ gc()
 source("/Dedicated/jmichaelson-wdata/msmuhammad/msmuhammad-source.R")
 ################################################################################
 ################################################################################
-project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs/"
+project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs"
 setwd(project.dir)
 ################################################################################
 # keep participants of interest
@@ -37,8 +37,10 @@ system(cmd)
 
 # read the landmarks csv, and save them with matched IDs
 system(paste0("mv landmarks.csv ", "data/derivatives/"))
-landmarks <- cbind(te_id = list.files("data/raw/", pattern = "face"),
-                   read_csv("data/derivatives/landmarks.csv"))
+landmarks <- cbind(read_csv("data/derivatives/landmarks.csv")) %>%
+  mutate(te_id = sub("face_", "", filename),
+         te_id = sub("\\.jpg", "", te_id))
+colnames(landmarks)[c(2,3)] <- c("NT_x", "NT_y")
 ################################################################################
 # print the landmarks for one of the faces, to identify the selected 12 coordinates
 tmp <- landmarks[2,] %>%
@@ -50,18 +52,17 @@ tmp <- landmarks[2,] %>%
   mutate(coord3 = sub("rel__", "P_", coord3))
 
 tmp %>%
-  filter(!grepl("nose", coord3)) %>%
   ggplot(aes(x=x, y=y, label = coord3)) +
   geom_point(color = "red") +
   geom_text(size =3)
 ################################################################################
 # list of points of interest
-# 17,21,22,26,36,39,27,42,45,30,48,54
+# 17,21,22,26,36,39,27,42,45,"NT",48,54
 # 
-keep <- c(17,21,22,26,36,39,27,42,45,30,48,54)
-main.distances <- data.frame(from = c(17, 22, 36, 42, 48, 27),
-                             to = c(21, 26, 39, 45, 54, 30),
-                             label = c("EB_L", "EB_R", "E_L", "E_R", "M", "N"))
+keep <- c(17,21,22,26,36,39,27,42,45,"NT",48,54,31,35,51,57)
+main.distances <- data.frame(from = c(17, 22, 36, 42, 48, 27, 31,51,21,21,22,17,26,39,42,17,26,36,45),
+                             to = c(21, 26, 39, 45, 54, "NT", 35,57,22,27,27,36,45,"NT","NT",48,54,48,54),
+                             label = c("EB_R", "EB_L", "E_R", "E_L", "M_H", "N_V", "N_H", "M_V", "EB_C","EB_N_R", "EB_N_L", "EB_E_R", "EB_E_L","NT_E_R", "NT_E_L","EB_M_R", "EB_M_L","E_M_R", "E_M_L"))
 all.distances <- data.frame(t(combn(keep, 2))) %>%
   rownames_to_column("pair") 
 registerDoMC(cores = 2)
@@ -74,7 +75,16 @@ distances <- foreach(j = 1:nrow(landmarks), .combine = rbind) %dopar% {
            coord3 = sub("y", "", coord3)) %>%
     pivot_wider(names_from = "coord2", values_from = "value", id_cols = c("te_id", "coord3")) %>%
     mutate(coord3 = sub("rel__", "P_", coord3)) %>%
-    mutate(point = parse_number(coord3))
+    mutate(point = parse_number(coord3),
+           point = ifelse(grepl("NT", coord3), "NT", point))
+  p.nt.x <- p.landmarks %>% filter(coord3 == "NT_") %>% select(x) %>% as.numeric()
+  p.nt.y <- p.landmarks %>% filter(coord3 == "NT_") %>% select(y) %>% as.numeric()
+  p.landmarks <- p.landmarks %>% 
+    mutate(x=x+p.nt.x, y=p.nt.y+y)%>%
+    mutate(x = ifelse(coord3 == "NT_", p.nt.x, x),
+           y = ifelse(coord3 == "NT_", p.nt.y, y)) %>%
+    mutate(x = scales::rescale(x),
+           y = scales::rescale(y))
   
   d_m <- foreach(i = 1:nrow(all.distances), .combine = rbind) %dopar% {
     p1 <- all.distances$X1[i]
@@ -96,8 +106,10 @@ distances <- foreach(j = 1:nrow(landmarks), .combine = rbind) %dopar% {
 # plot distribution of distances for each pair
 p <- distances %>%
   left_join(main.distances %>%
-              rename(X1 = "from", X2 = "to")) %>%
+              rename(X1 = "from", X2 = "to") %>%
+              mutate(X1 = as.character(X1))) %>%
   mutate(pair = ifelse(is.na(label), pair, label)) %>%
+  filter(!is.na(label)) %>%
   ggplot(aes(x=distance)) +
   geom_histogram()+
   facet_wrap("pair", scales = "free")
@@ -107,13 +119,43 @@ ggsave(p, filename = "figs/distribution-of-landmarks-pairs-distances.png", bg = 
 ################################################################################
 wider.distances <- distances %>%
   left_join(main.distances %>%
-              rename(X1 = "from", X2 = "to")) %>%
+              rename(X1 = "from", X2 = "to") %>%
+              mutate(X1 = as.character(X1))) %>%
   mutate(pair = ifelse(is.na(label), pair, label),
          pair = paste0("P_", pair)) %>%
   pivot_wider(names_from = "pair", values_from = "distance", id_cols = "te_id")
 write_csv(wider.distances, "data/derivatives/pairs-distances.csv")
 
 ################################################################################
+# try to plot coords on top of image
+# 
+# 
+# 
+library(magick)
+pdf(file = "figs/layered-landmarks.pdf")
+for (j in 1:nrow(landmarks)) {
+  tmp2 <- landmarks[j,] %>%
+    pivot_longer(cols = c(contains("x"), contains("y")), names_to = "coord") %>%
+    mutate(coord2 = ifelse(grepl("x", coord), "x", "y"),
+           coord3 = sub("x", "", coord),
+           coord3 = sub("y", "", coord3)) %>%
+    pivot_wider(names_from = "coord2", values_from = "value", id_cols = c("te_id", "coord3")) %>%
+    mutate(coord3 = sub("rel__", "P_", coord3)) 
+  tmp.nt.x <- tmp2 %>% filter(coord3 == "NT_") %>% select(x) %>% as.numeric()
+  tmp.nt.y <- tmp2 %>% filter(coord3 == "NT_") %>% select(y) %>% as.numeric()
+  tmp2 <- tmp2 %>% mutate(x=x+tmp.nt.x, y=ifelse(y>0,tmp.nt.y+y,tmp.nt.y+y))%>%
+    mutate(x = ifelse(coord3 == "NT_", tmp.nt.x, x),
+           y = ifelse(coord3 == "NT_", tmp.nt.y, y)) 
+  img2 <- imager::load.image(paste0("data/raw/",landmarks$filename[j]))
+  plot(img2) + points(x = tmp2$x, y = tmp2$y) + title(main = landmarks$te_id[j])
+  # img <- magick::image_read(paste0("data/raw/",landmarks$filename[j]))
+  # image_ggplot(img) + 
+  #   theme_classic() + 
+  #   geom_point(aes(x=x, y=y), data = tmp2)
+}
+dev.off()
+
+
 
 
 ################################################################################

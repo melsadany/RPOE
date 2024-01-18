@@ -44,7 +44,8 @@ m1 <- nih.tb %>%
   select(te_id, dev_id, 
          ends_with("age_corrected_standard_score")) %>%
   drop_na() %>%
-  mutate(PV_PS_age_corrected_standard_score = PV_age_corrected_standard_score - pattern_age_corrected_standard_score)
+  mutate(PV_PS_age_corrected_standard_score = PV_age_corrected_standard_score - pattern_age_corrected_standard_score,
+         abs_PV_PS_age_corrected_standard_score = abs(PV_age_corrected_standard_score - pattern_age_corrected_standard_score))
 m2 <- iq %>%
   select(dev_id, te_id,
          paste0(c("PSI", "WM", "VCI"), "_composite_score"),

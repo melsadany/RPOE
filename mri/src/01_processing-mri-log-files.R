@@ -81,16 +81,36 @@ format_2e_fmri_metadata = function(fn,nframes=1000){
 ################################################################################
 # apply the function on users that have done the fMRI-PSVC
 system(paste0("mkdir -p ", project.dir, "/data/derivatives/MRI-log/mdata"))
-p.list <- list.dirs("/Dedicated/jmichaelson-sdata/MRI/RPOE", recursive = F)
+p.of.int <- readxl::read_xlsx("../language/data/raw/RPOE_participants_metadata.xlsx", sheet = 1) %>%
+  select(devGenes_id, te_id) %>%
+  drop_na() %>%
+  # 2E_046 incomplete
+  # 2E_031 has a different version of the task. 
+  # 2E_053 has no data recorded
+  # 2E_032 incomplete
+  # 2E_036 incomplete
+  # 2E_047 no fMRI
+  # 2E_048 no fMRI
+  # 2E_049 no fMRI
+  # please drop them
+  mutate(mri_valid = !(grepl("2E_031", te_id)|
+                         grepl("2E_046", te_id)|
+                         grepl("2E_036", te_id)|
+                         grepl("2E_047", te_id)|
+                         grepl("2E_048", te_id)|
+                         grepl("2E_049", te_id)|
+                         grepl("2E_053", te_id))) %>%
+  filter(mri_valid==T) %>%
+  mutate(f = paste0("/Dedicated/jmichaelson-sdata/MRI/RPOE/", te_id))
+p.list <- p.of.int$f
 registerDoMC(cores = 4)
 foreach (i = 1:(length(p.list)-1)) %dopar% {
   f.path <- p.list[i]
   pid <- sub("/Dedicated/jmichaelson-sdata/MRI/RPOE/", "", f.path)
   file <- list.files(paste0(f.path, "/scan/metadata"), 
                      pattern = "log", full.names = T)
-  # participant 2E_046 did not complete the MRI scan. participant 2E_031 has a different version of the task. 
-  # please drop them
-  if (length(file)!=0 & !(grepl("2E_046", file) | grepl("2E_031", file))) { 
+  
+  if (length(file)!=0) { 
     out <- format_2e_fmri_metadata(fn = file)
     write_rds(out, paste0(project.dir, "/data/derivatives/MRI-log/", pid, "_fmri-all.rds"))
     write_tsv(out[["mdata"]], paste0(project.dir, "/data/derivatives/MRI-log/mdata/", pid, "_mdata.tsv"))

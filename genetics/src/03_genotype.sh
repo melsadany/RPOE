@@ -10,7 +10,7 @@ fi
 
 SAMPLE=$1
 MAX_JOBS=16
-CHROMOSOMES=(chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX)
+CHROMOSOMES=(chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22)
 
 for CHR in "${CHROMOSOMES[@]}"
 do
@@ -38,14 +38,15 @@ do
         	done
 	done < /Dedicated/jmichaelson-sdata/lowpass/chunks/chunks.${CHR}.txt
 	wait
-	LST=${OUT_PATH}/glimpse/${SAMPLE}/list.${CHR}.txt
-	ls -1v ${OUT_PATH}/glimpse/${SAMPLE}/${SAMPLE}_imputed_${CHR}_*.bcf > ${LST}
+	OUT_PATH=${P_DIR}/data/derivatives/glimpse/${SAMPLE}
+	LST=${OUT_PATH}/list.${CHR}.txt
+	ls -1v ${OUT_PATH}/${SAMPLE}_imputed_${CHR}_*.bcf > ${LST}
 
-	OUT=${OUT_PATH}/glimpse/${SAMPLE}/${SAMPLE}_${CHR}_ligated.bcf
+	OUT=${OUT_PATH}/${SAMPLE}_${CHR}_ligated.bcf
 	/Dedicated/jmichaelson-sdata/lowpass/bin/GLIMPSE2_ligate --input ${LST} --output $OUT
     # If GLIMPSE2_ligate command was successful, delete the imputed files
     if [ $? -eq 0 ]; then
-        rm ${OUT_PATH}/glimpse/${SAMPLE}/${SAMPLE}_imputed_${CHR}_*
+        rm ${OUT_PATH}/${SAMPLE}_imputed_${CHR}_*
     else
         echo "GLIMPSE2_ligate failed, imputed files were not removed."
     fi

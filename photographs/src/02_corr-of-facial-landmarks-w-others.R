@@ -40,9 +40,11 @@ m1.m2 <- inner_join(m1, m2) %>%
 # get participants' metadata
 meta <- readxl::read_xlsx("../language/data/raw/RPOE_participants_metadata.xlsx", sheet = 1) %>%
   drop_na(DOB) %>%
-  mutate(age = age(DOB))
+  mutate(age = age(DOB, floor = F))
 # get pairs distances
+int.pairs <- c("EB_R", "EB_L", "E_R", "E_L", "M_H", "N_V", "N_H", "M_V", "EB_C","EB_N_R", "EB_N_L", "EB_E_R", "EB_E_L","NT_E_R", "NT_E_L","EB_M_R", "EB_M_L","E_M_R", "E_M_L")
 pairs.dis <- read_csv("data/derivatives/pairs-distances.csv") %>%
+  select(te_id, paste0("P_", int.pairs)) %>% # only keep distances of int
   left_join(meta %>% select(te_id, age, sex))
 # correct pairs distances for age, sex, and interaction
 # 
@@ -67,14 +69,13 @@ corr.table(m123 %>% select(any_of(c(colnames(m1), colnames(m2))),
   filter(V1 %in% c(colnames(m1), colnames(m2)), 
          V2 %in% colnames(pairs.dis)) %>%
   mutate(V1 = sub("_age_corrected_standard_score", "_NIH", V1),
-         cat1 = ifelse(!grepl(paste(c("E", "M", "N"), collapse = "|"), V2), "all","int"),
+         # cat1 = ifelse(!grepl(paste(c("E", "M", "N"), collapse = "|"), V2), "all","int"),
          cat2 = ifelse(grepl("NIH", V1), "NIH-TB", "IQ"),
          V1 = sub("_NIH", "", V1),
          V1 = factor(V1, levels = unique(V1)),
-         V2 = sub("lingmatch\\.", "", V2),
-         V2 = sub("nrc\\.", "", V2),
+         V2 = sub("P_", "", V2),
          V2 = factor(V2, levels = unique(V2))) %>%
-  ggplot(aes(x=V1, y=V2, fill = r, label = ifelse(FDR < 0.05, "**", ifelse(pval<0.05, "*",""))))+
+  ggplot(aes(x=V1, y=reorder(V2, desc(V2)), fill = r, label = ifelse(FDR < 0.05, "**", ifelse(pval<0.05, "*",""))))+
   geom_tile()+
   geom_text(size = 3, color = "white")+
   # ggh4x::facet_grid2(rows = vars(cat1), 
@@ -88,7 +89,7 @@ corr.table(m123 %>% select(any_of(c(colnames(m1), colnames(m2))),
                         "*    pval<0.05")) +
   my.guides
 ggsave(filename = paste0("figs/corr_facial-landmarks-pairs-distance-IQ.png"),
-       width = 8, height = 12, units = "in", dpi = 320, bg = "white")
+       width = 8, height = 8, units = "in", dpi = 320, bg = "white")
 ################################################################################
 
 

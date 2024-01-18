@@ -216,7 +216,7 @@ tmp <- inner_join(cons.pairs, wait.time2) %>%
   left_join(m1.m2) %>%
   drop_na(FSIQ)
 tmp %>% 
-  ggplot(aes(x=cos_similarity, y=wait)) +
+  ggplot(aes(x=cos_similarity, y=log2(wait))) +
   geom_point(size=1)+
   geom_smooth(method = "loess") +
   ggpubr::stat_cor() +

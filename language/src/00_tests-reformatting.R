@@ -60,8 +60,8 @@ wisc.names <- c(
 wais.names <- c(
   "te_id", "dev_id", "iq_date", "iq_time", "sex", "gender",
   # "iq_type",
-  "VCI_PSI",
   "report_requested", "report_proofed", "report_sent",
+  "VCI_PSI",
   "VCI_composite_score", "VCI_PR", "VCI_CI",
   "PRI_composite_score", "PRI_PR", "PRI_CI",
   # "WMI_composite_score", "WMI_PR", "WMI_CI",

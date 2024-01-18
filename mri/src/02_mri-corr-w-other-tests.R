@@ -37,10 +37,11 @@ task.template <- mri.meta %>%
                                         ifelse(exp_condition == "coherent", 7,
                                                ifelse(exp_condition == "incoherent", 8,
                                                       NA))))) %>%
-  select(task, exp_condition, specific, file, duration, correct_answer) %>%
+  select(task, exp_condition, category, specific, file, duration, correct_answer) %>%
   slice_head(n=209)
 task.total <- task.template %>%
-  group_by(task, exp_condition) %>%
+  mutate(category = ifelse(task == "semantic_coherence", NA, category)) %>%
+  group_by(task, exp_condition, category) %>%
   dplyr::summarise(task_total = n())
 ################################################################################
 # how many were correct per participant
@@ -48,9 +49,11 @@ p.scores <- mri.meta %>%
   left_join(task.template) %>%
   distinct() %>%
   filter(!is.na(correct_answer)) %>%
-  select(te_id, task, exp_condition,file, converted_keypress, correct_answer) %>%
+  select(te_id, task, exp_condition, category,file, converted_keypress, correct_answer) %>%
   mutate(answered_correctly = ifelse(is.na(converted_keypress), F,
-                                     ifelse(converted_keypress == correct_answer, T, F))) %>%
+                                     ifelse(converted_keypress == correct_answer, T, F)),
+         category = ifelse(task == "semantic_coherence", NA, category),
+         exp_condition = paste0(exp_condition, "_", category)) %>%
   group_by(te_id, task, exp_condition) %>%
   dplyr::summarise(total = sum(answered_correctly)) %>%
   left_join(task.total, relationship = "many-to-many") %>% 
@@ -60,7 +63,9 @@ p.scores <- mri.meta %>%
 # get the relative time needed to define coh/non-coh and same/diff for the ones answered
 p.scores.t <- mri.meta %>%
   filter(task %in% c("PS_samediff", "semantic_coherence")) %>%
-  mutate(abs_keypress_t = keypress_rel_time - rel_time) %>%
+  mutate(abs_keypress_t = keypress_rel_time - rel_time,
+         category = ifelse(task == "semantic_coherence", NA, category),
+         exp_condition = paste0(exp_condition, "_", category)) %>%
   select(te_id, task, exp_condition, abs_keypress_t) %>%
   drop_na() %>%
   group_by(te_id, task, exp_condition) %>%
@@ -91,14 +96,15 @@ number.presses.time <- mri.meta %>%
   dplyr::summarise(avg_number_keypress_abs_t = mean(abs_keypress_t, na.omit = T))
 ################################################################################
 # read tests data
-nih.tb <- read_csv("../language/data/derivatives/nih-tb_clean_120623.csv")
-iq <- read_csv("../language/data/derivatives/wisc-and-wais_clean_120623.csv")
+nih.tb <- read_csv("../language/data/derivatives/nih-tb_clean.csv")
+iq <- read_csv("../language/data/derivatives/wisc-and-wais_clean.csv")
 ################################################################################
 # clean NIH-TB and IQ
 m1 <- nih.tb %>%
   select(dev_id, 
          ends_with("age_corrected_standard_score")) %>%
-  drop_na()
+  drop_na() %>%
+  mutate(PV_PS_age_corrected_standard_score = PV_age_corrected_standard_score - pattern_age_corrected_standard_score)
 m2 <- iq %>%
   select(dev_id, te_id,
          paste0(c("PSI", "WM", "VCI"), "_composite_score"),
@@ -106,7 +112,9 @@ m2 <- iq %>%
          FSIQ, 
          SI, VC, BD, VP, MR, 
          #FW, PS, IN, AR, 
-         DS, CD, SS)
+         DS, CD, SS) %>%
+  mutate(VCI_PSI = VCI_composite_score - PSI_composite_score,
+         abs_VCI_PSI = abs(VCI_composite_score - PSI_composite_score))
 m1.m2 <- inner_join(m1, m2) %>%
   mutate(te_id=ifelse(is.na(te_id), dev_id, te_id)) %>%
   rename(te_id = te_id)
@@ -133,7 +141,7 @@ corr.table(m123 %>% select(colnames(m1.m2), -te_id, -dev_id),
   redblack.col.gradient + my.guides + null_labs +
   labs(caption = paste0("n(samples): ", nrow(m123)))
 ggsave(filename = "figs/correlation-between-fmri-scores-and-data-with-nih-iq.png",
-       width = 10, height = 10, units = "in", dpi = 320, bg = "white")
+       width = 10, height = 8, units = "in", dpi = 320, bg = "white")
 ################################################################################
 
 
