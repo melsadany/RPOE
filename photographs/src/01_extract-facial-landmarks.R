@@ -148,10 +148,6 @@ for (j in 1:nrow(landmarks)) {
            y = ifelse(coord3 == "NT_", tmp.nt.y, y)) 
   img2 <- imager::load.image(paste0("data/raw/",landmarks$filename[j]))
   plot(img2) + points(x = tmp2$x, y = tmp2$y) + title(main = landmarks$te_id[j])
-  # img <- magick::image_read(paste0("data/raw/",landmarks$filename[j]))
-  # image_ggplot(img) + 
-  #   theme_classic() + 
-  #   geom_point(aes(x=x, y=y), data = tmp2)
 }
 dev.off()
 
@@ -159,8 +155,79 @@ dev.off()
 
 
 ################################################################################
+################################################################################
+################################################################################
+# get the areas in the face
+a1 <- c(27,22,23,24,25,26,45,44,43,42)
+a2 <- c(42,43,44,45,46,47)
+a3 <- c(27,35,45,46,47,42)
+a4 <- c(27,28,29,30,33,34,35)
+a5 <- c(26,45,35,34,33,51,52,53,54)
+a6 <- c(62,63,64,65,66,57,56,55,54,53,52,51)
+a7 <- c(27,21,20,19,18,17,36,37,38,39)
+a8 <- c(36,37,38,39,40,41)
+a9 <- c(27,31,36,41,40,39)
+a10 <- c(27,28,29,30,33,32,31)
+a11 <- c(17,36,31,32,33,51,50,49,48)
+a12 <- c(62,61,60,67,66,57,58,59,48,49,50,51)
 
-
+facial.areas <- foreach(j = 1:nrow(landmarks), .combine = rbind) %dopar% {
+  #
+  p.landmarks <- landmarks[j,] %>%
+    pivot_longer(cols = c(contains("x"), contains("y")), names_to = "coord") %>%
+    filter(!grepl("nose", coord)) %>%
+    mutate(coord2 = ifelse(grepl("x", coord), "x", "y"),
+           coord3 = sub("x", "", coord),
+           coord3 = sub("y", "", coord3)) %>%
+    pivot_wider(names_from = "coord2", values_from = "value", id_cols = c("te_id", "coord3")) %>%
+    mutate(coord3 = sub("rel__", "P_", coord3)) %>%
+    mutate(point = parse_number(coord3),
+           point = ifelse(grepl("NT", coord3), "NT", point))
+  p.nt.x <- p.landmarks %>% filter(coord3 == "NT_") %>% select(x) %>% as.numeric()
+  p.nt.y <- p.landmarks %>% filter(coord3 == "NT_") %>% select(y) %>% as.numeric()
+  p.landmarks <- p.landmarks %>% 
+    mutate(x=x+p.nt.x, y=p.nt.y+y)%>%
+    mutate(x = ifelse(coord3 == "NT_", p.nt.x, x),
+           y = ifelse(coord3 == "NT_", p.nt.y, y)) %>%
+    mutate(x = scales::rescale(x),
+           y = scales::rescale(y))
+  #
+  coords.all <- p.landmarks %>%
+    filter(point != "NT") %>%
+    mutate(point = as.numeric(point)) %>%
+    column_to_rownames("point")
+  library(geometry)
+  a.a1 <- polyarea(x = coords.all$x[a1+1], y = coords.all$y[a1+1])
+  a.a2 <- polyarea(x = coords.all$x[a2+1], y = coords.all$y[a2+1])
+  a.a3 <- polyarea(x = coords.all$x[a3+1], y = coords.all$y[a3+1])
+  a.a4 <- polyarea(x = coords.all$x[a4+1], y = coords.all$y[a4+1])
+  a.a5 <- polyarea(x = coords.all$x[a5+1], y = coords.all$y[a5+1])
+  a.a6 <- polyarea(x = coords.all$x[a6+1], y = coords.all$y[a6+1])
+  a.a7 <- polyarea(x = coords.all$x[a7+1], y = coords.all$y[a7+1])
+  a.a8 <- polyarea(x = coords.all$x[a8+1], y = coords.all$y[a8+1])
+  a.a9 <- polyarea(x = coords.all$x[a9+1], y = coords.all$y[a9+1])
+  a.a10 <- polyarea(x = coords.all$x[a10+1], y = coords.all$y[a10+1])
+  a.a11 <- polyarea(x = coords.all$x[a11+1], y = coords.all$y[a11+1])
+  a.a12 <- polyarea(x = coords.all$x[a12+1], y = coords.all$y[a12+1])
+  data.frame(area_label = c("ES_R", "E_R", "CHK_I_R", "N_R", "CHK_O_R", "M_R",
+                            "ES_L", "E_L", "CHK_I_L", "N_L", "CHK_O_L", "M_L"),
+             area = c(a.a1, a.a2, a.a3, a.a4, a.a5, a.a6, a.a7, a.a8, a.a9, a.a10, a.a11, a.a12)) %>%
+    mutate(te_id = sub("face_", "", landmarks$te_id[j]),
+           te_id = sub("\\.jpg", "", te_id))
+}
+# plot distribution of areas
+p <- facial.areas %>%
+  ggplot(aes(x=area)) +
+  geom_histogram()+
+  facet_wrap("area_label", scales = "free")
+ggsave(p, filename = "figs/distribution-of-landmarks-areas.png", bg = "white",
+       height = 8, width = 9, units = "in", dpi = 360)
+#
+################################################################################
+wider.facial.areas <- facial.areas %>%
+  mutate(area_label = paste0("A_", area_label)) %>%
+  pivot_wider(names_from = "area_label", values_from = "area", id_cols = "te_id")
+write_csv(wider.facial.areas, "data/derivatives/facial.areas.csv")
 ################################################################################
 
 

@@ -29,7 +29,7 @@ write_lines(all.files$file, "data/derivatives/cropped-audio-files-for-whisper")
 
 ######
 # if running for a new/specific participant
-pid <- c("2E_064")
+pid <- c("2E_075", "2E_080", "2E_081", "2E_082", "2E_083")
 all.files <- all.files %>%
   filter(ID %in% pid)
 ######

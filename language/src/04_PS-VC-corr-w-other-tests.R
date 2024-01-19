@@ -23,7 +23,7 @@ setwd(project.dir)
 ################################################################################
 #  read the PS_VC task metadata
 ps.vc.metadata.r <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 2) %>%
-  filter(task_v==2)
+  dplyr::filter(task_v==2)
 ps.vc.metadata <- ps.vc.metadata.r %>%
   mutate(start_in_sec = start_in_sec - ps.vc.metadata.r$start_in_sec[1],
          end_in_sec = end_in_sec - ps.vc.metadata.r$start_in_sec[1]) %>%
@@ -194,6 +194,11 @@ wait.time2 <- cbind(wait.time[-nrow(wait.time),]%>%select(1:4),
   filter(wait>0) %>%
   group_by(te_id) %>%
   dplyr::summarise(avg_wait = mean(wait))
+# save summ for PS-VC
+ttt <- inner_join(inner_join(chr.wise, word.wise),
+                  inner_join(word.count, 
+                             inner_join(ums,wait.time2)))
+write_rds(ttt, file = "data/derivatives/ps-vc-summary-data.rds")
 ###############
 # get the correlation between nih-tb / IQ and word count/ums count/language features from PS-VC audio
 m124 <- inner_join(m1.m2, 
