@@ -12,34 +12,54 @@ setwd(project.dir)
 # keep participants of interest
 participants.metadata <- readxl::read_xlsx("../language/data/raw/RPOE_participants_metadata.xlsx", sheet = 1) %>%
   drop_na(sex, te_id)
-# check if the participants have face photographs taken
-registerDoMC(cores = 3)
-files.meta <- foreach(i=1:nrow(participants.metadata), .combine = rbind) %dopar% {
-  p <- participants.metadata$te_id[i]
-  df <- data.frame(file = list.files(paste0("/Dedicated/jmichaelson-sdata/MRI/RPOE/", p, "/phenotype/photographs"),
-                                     pattern = "face", full.names = T)) %>%
-    mutate(te_id = p,
-           new_path = paste0(project.dir,
-                             "/data/raw/face_", te_id, ".jpg"))
-  if (nrow(df)>0) {
-    cmd <- paste0("cp ", df$file[1], " ", df$new_path)
-    system(cmd)
-  }
-  return(df)
-}
+# # check if the participants have face photographs taken
+# registerDoMC(cores = 3)
+# files.meta <- foreach(i=1:nrow(participants.metadata), .combine = rbind) %dopar% {
+#   p <- participants.metadata$te_id[i]
+#   df <- data.frame(file = list.files(paste0("/Dedicated/jmichaelson-sdata/MRI/RPOE/", p, "/phenotype/photographs"),
+#                                      pattern = "face", full.names = T)) %>%
+#     mutate(te_id = p,
+#            new_path = paste0(project.dir,
+#                              "/data/raw/face_", te_id, ".jpg"))
+#   if (nrow(df)>0) {
+#     cmd <- paste0("cp ", df$file[1], " ", df$new_path)
+#     system(cmd)
+#   }
+#   return(df)
+# }
 ################################################################################
 # run the python script to process these files
 py.sc <- "/Dedicated/jmichaelson-wdata/msmuhammad/workbench/customized-functions/facial_coords.py"
 cmd <- paste("python3", py.sc,
-             "--folder_path", "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs/data/raw",
+             "--dir_path", "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs/data/raw",
              sep = " ")
 system(cmd)
 
 # read the landmarks csv, and save them with matched IDs
-system(paste0("mv landmarks.csv ", "data/derivatives/"))
+system(paste0("mv raw_coords.csv ", "data/derivatives/landmarks.csv"))
+
+######
+# if doing it for only one participant:
+py.sc <- "/Dedicated/jmichaelson-wdata/msmuhammad/workbench/customized-functions/facial_coords.py"
+cmd <- paste("python3", py.sc,
+             "--image_path", "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs/data/raw/face_2E_054.jpg",
+             sep = " ")
+system(cmd)
+o.landmarks <- read_csv("data/derivatives/landmarks.csv")
+n.landmarks <- read_csv("face_2E_054_coords.csv")
+a.landmarks <- rbind(o.landmarks %>%
+                       filter(!(filename %in% n.landmarks$filename)), 
+                     n.landmarks) %>%
+  arrange(filename)
+write_csv(a.landmarks, "data/derivatives/landmarks.csv")
+system(paste0("rm ", "face_2E_054_coords.csv"))
+######
+######
+
 landmarks <- cbind(read_csv("data/derivatives/landmarks.csv")) %>%
   mutate(te_id = sub("face_", "", filename),
-         te_id = sub("\\.jpg", "", te_id))
+         te_id = sub("\\.jpg", "", te_id)) %>%
+  select(-QCPASS)
 colnames(landmarks)[c(2,3)] <- c("NT_x", "NT_y")
 ################################################################################
 # print the landmarks for one of the faces, to identify the selected 12 coordinates
@@ -59,10 +79,10 @@ tmp %>%
 # list of points of interest
 # 17,21,22,26,36,39,27,42,45,"NT",48,54
 # 
-keep <- c(17,21,22,26,36,39,27,42,45,"NT",48,54,31,35,51,57)
-main.distances <- data.frame(from = c(17, 22, 36, 42, 48, 27, 31,51,21,21,22,17,26,39,42,17,26,36,45),
-                             to = c(21, 26, 39, 45, 54, "NT", 35,57,22,27,27,36,45,"NT","NT",48,54,48,54),
-                             label = c("EB_R", "EB_L", "E_R", "E_L", "M_H", "N_V", "N_H", "M_V", "EB_C","EB_N_R", "EB_N_L", "EB_E_R", "EB_E_L","NT_E_R", "NT_E_L","EB_M_R", "EB_M_L","E_M_R", "E_M_L"))
+keep <- c(17,21,22,26,36,39,27,42,45,"NT",48,54,31,35,51,57,0,16)
+main.distances <- data.frame(from = c(17, 22, 36, 42, 48, 27, 31,51,21,21,22,17,26,39,42,17,26,36,45,0),
+                             to = c(21, 26, 39, 45, 54, "NT", 35,57,22,27,27,36,45,"NT","NT",48,54,48,54,16),
+                             label = c("EB_R", "EB_L", "E_R", "E_L", "M_H", "N_V", "N_H_B", "M_V", "EB_C","EB_N_R", "EB_N_L", "EB_E_R", "EB_E_L","NT_E_R", "NT_E_L","EB_M_R", "EB_M_L","E_M_R", "E_M_L", "N_H_A"))
 all.distances <- data.frame(t(combn(keep, 2))) %>%
   rownames_to_column("pair") 
 registerDoMC(cores = 2)
@@ -158,18 +178,19 @@ dev.off()
 ################################################################################
 ################################################################################
 # get the areas in the face
-a1 <- c(27,22,23,24,25,26,45,44,43,42)
-a2 <- c(42,43,44,45,46,47)
-a3 <- c(27,35,45,46,47,42)
-a4 <- c(27,28,29,30,33,34,35)
-a5 <- c(26,45,35,34,33,51,52,53,54)
-a6 <- c(62,63,64,65,66,57,56,55,54,53,52,51)
-a7 <- c(27,21,20,19,18,17,36,37,38,39)
-a8 <- c(36,37,38,39,40,41)
-a9 <- c(27,31,36,41,40,39)
-a10 <- c(27,28,29,30,33,32,31)
-a11 <- c(17,36,31,32,33,51,50,49,48)
-a12 <- c(62,61,60,67,66,57,58,59,48,49,50,51)
+a1 <- c(27,22,23,24,25,26,45,44,43,42) # ES_R
+a2 <- c(42,43,44,45,46,47) # E_R
+a3 <- c(27,35,45,46,47,42) # CHK_I_R
+a4 <- c(27,28,29,30,33,34,35,16) # N_R
+a5 <- c(26,45,35,34,33,51,52,53,54) # CHK_O_R
+a6 <- c(62,63,64,65,66,57,56,55,54,53,52,51) # M_R
+a7 <- c(27,21,20,19,18,17,36,37,38,39) # ES_L
+a8 <- c(36,37,38,39,40,41) # E_L
+a9 <- c(27,31,36,41,40,39) # CHK_I_L
+a10 <- c(27,28,29,30,33,32,31,0) # N_L
+a11 <- c(17,36,31,32,33,51,50,49,48) # CHK_O_L
+a12 <- c(62,61,60,67,66,57,58,59,48,49,50,51) # M_L
+
 
 facial.areas <- foreach(j = 1:nrow(landmarks), .combine = rbind) %dopar% {
   #
