@@ -18,6 +18,7 @@ p.of.int <- participants.metadata %>%
   filter(splitted_audio == T) 
 ################################################################################
 # get file paths for subject audio files
+registerDoMC(cores = 3)
 files <- foreach(i = 1:nrow(p.of.int), .combine = rbind) %dopar% {
   data.frame(file = list.files(paste0("/Dedicated/jmichaelson-sdata/MRI/RPOE/",
                                       p.of.int$te_id[i], "/phenotype/interview/split"), 
@@ -46,4 +47,23 @@ for(i in 1:nrow(files)) {
   print(paste0(paste0("mkdir -p ", n.dir),";",cmd))
   # system(cmd)
 }
+################################################################################
+# combine the interview transcription for LIWC?
+int.f <- data.frame(dir = list.dirs("data/derivatives/interview_transcription", recursive = F)) %>%
+  mutate(te_id = basename(dir),
+         file = list.files(paste0(dir, "/"), pattern = "\\.m4a\\.tsv", full.names = T))
+int.all <- foreach(i=1:nrow(int.f), .combine = rbind) %dopar% {
+  df <- read_tsv(int.f$file[i]) %>%
+    filter(nchar(text) > 1)
+  data.frame(text = df$text,
+             te_id = int.f$te_id[i]) %>%
+    group_by(te_id) %>%
+    dplyr::summarise(text = paste(text, collapse = ". "))
+}
+write_csv(int.all, "data/derivatives/interview_transcription/all-transcriptions.csv")
+################################################################################
 
+
+
+################################################################################
+################################################################################
