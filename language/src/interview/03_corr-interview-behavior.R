@@ -4,11 +4,28 @@
 rm(list = ls())
 gc()
 source("/Dedicated/jmichaelson-wdata/msmuhammad/msmuhammad-source.R")
+age <- function(dob, age.day = today(), units = "years", floor = TRUE) {
+  calc.age = lubridate::interval(dob, age.day) / lubridate::duration(num = 1, units = units)
+  if (floor) return(as.integer(floor(calc.age)))
+  return(calc.age)
+}
 ################################################################################
 ################################################################################
 project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language"
 setwd(project.dir)
 ################################################################################
+################################################################################
+################################################################################
+# get participants' metadata
+meta <- readxl::read_xlsx("../language/data/raw/RPOE_participants_metadata.xlsx", sheet = 1) %>%
+  drop_na(DOB) %>%
+  mutate(age = age(DOB, floor = F))
+vitals <- readxl::read_xlsx("../language/data/raw/RPOE Stats.xlsx", sheet = 1) %>%
+  select(devGenes_id = 2, height = 5, weight =6) %>%
+  mutate(height = as.numeric(height), weight = as.numeric(weight)) %>%
+  drop_na() %>%
+  mutate(bmi = weight/(height^2))
+meta <- full_join(meta, vitals)
 ################################################################################
 # read int transcription
 int <- read_csv("data/derivatives/interview_transcription/all-transcriptions.csv")
@@ -39,6 +56,7 @@ m2 <- iq %>%
 m1.m2 <- inner_join(m1, m2) %>%
   mutate(te_id=ifelse(is.na(te_id), dev_id, te_id)) %>%
   rename(te_id = te_id)
+rm(nih.tb);rm(iq);gc()
 ################################################################################
 # dist of data
 narr %>% 
@@ -46,6 +64,11 @@ narr %>%
   ggplot(aes(x=value)) +
   geom_histogram()+
   facet_wrap(~var, scales = "free")
+ggsave(filename = paste0("figs/narrativity-distribution-",
+                         "no-correction",
+                         ".png"),
+       width = 10, height = 8, units = "in", dpi = 320, bg = "white")
+################################################################################
 ################################################################################
 # combine narrative measures with IQ, and check corr
 m123 <- inner_join(m1.m2, narr)
@@ -95,6 +118,7 @@ ggsave(filename = paste0("figs/corr_narrativity-",
        width = 25, height = 12, units = "in", dpi = 320, bg = "white")
 
 ################################################################################
+################################################################################
 # combine LIWC.22 measures with IQ, and check corr
 m124 <- inner_join(m1.m2, liwc.22[,-1])
 # get categories of liwc
@@ -129,14 +153,60 @@ ggsave(filename = paste0("figs/corr_LIWC-IQ-",
                          "no-correction",
                          ".png"),
        width = 10, height = 24, units = "in", dpi = 320, bg = "white")
-
-
 ################################################################################
-
-
 ################################################################################
-
-
+# get correlation between narr scores, and age &sex
+narr.as <- inner_join(meta %>% select(devGenes_id, te_id, age, sex, bmi, Race),
+                      narr)
+narr.as %>%
+  pivot_longer(cols = c(starts_with("Narrativity"), starts_with("Valley")), 
+               names_to = "narr", values_to = "val1") %>%
+  pivot_longer(cols = c(age, bmi), names_to = "ab", values_to = "val2") %>%
+  ggplot(aes(x=val1, y=val2)) +
+  geom_point(size=2)+geom_smooth(method = "lm")+ggpubr::stat_cor(color="red")+
+  ggh4x::facet_grid2(rows = vars(ab), cols = vars(narr), scales = "free")
+ggsave(filename = paste0("figs/narrativity-correlation-w-age-bmi-",
+                         "scatter",
+                         ".png"),
+       width = 13, height = 6, units = "in", dpi = 320, bg = "white")
+# get corr w sex
+narr.as %>%
+  pivot_longer(cols = c(starts_with("Narrativity"), starts_with("Valley")), 
+               names_to = "narr", values_to = "val1") %>%
+  ggplot(aes(x=sex, y=val1, fill = sex)) +
+  geom_violin()+geom_boxplot(width = 0.1, fill = "white")+ggpubr::stat_compare_means(color="red")+
+  facet_wrap(~narr, scales = "free")
+ggsave(filename = paste0("figs/narrativity-correlation-w-sex-",
+                         "violin",
+                         ".png"),
+       width = 8, height = 8, units = "in", dpi = 320, bg = "white")
+# get corr w race
+narr.as %>%
+  pivot_longer(cols = c(starts_with("Narrativity"), starts_with("Valley")), 
+               names_to = "narr", values_to = "val1") %>%
+  ggplot(aes(x=Race, y=val1, fill = Race)) +
+  geom_violin()+geom_boxplot(width = 0.1, fill = "white")+
+  facet_wrap(~narr, scales = "free")
+################################################################################
+################################################################################
+# plot the narrative arc measures
+narr %>%
+  pivot_longer(cols = c(starts_with("CogTension_"), 
+                        starts_with("Staging_"),
+                        starts_with("PlotProg_")), 
+               names_to = "narr", values_to = "val") %>%
+  mutate(segment = parse_number(narr),
+         arc = sub("_.*", "", narr)) %>%
+  ggplot(aes(x=segment, y=val, color = te_id)) +
+  geom_line(alpha = 0.4, show.legend = F) +
+  # ggh4x::facet_grid2(rows = vars(te_id), cols = vars(arc), scales = "free") +
+  facet_wrap(~arc, scales = "free") +
+  theme(strip.text.y.right = element_text(angle = 0))
+ggsave(filename = paste0("figs/narrativity-arc-lines",
+                         # "-by-participant",
+                         ".png"),
+       # width = 8, height = 20, units = "in", dpi = 320, bg = "white")
+       width = 8, height = 4, units = "in", dpi = 320, bg = "white")
 ################################################################################
 
 

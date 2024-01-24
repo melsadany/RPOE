@@ -60,7 +60,7 @@ meta <- full_join(meta, vitals)
 int.pairs <- c("EB_R", "EB_L", "E_R", "E_L", "M_H", "N_V", "N_H_B", "M_V", "EB_C","EB_N_R", "EB_N_L", "EB_E_R", "EB_E_L","NT_E_R", "NT_E_L","EB_M_R", "EB_M_L","E_M_R", "E_M_L", "N_H_A")
 pairs.dis <- read_csv("data/derivatives/pairs-distances.csv") %>%
   select(te_id, paste0("P_", int.pairs)) %>% # only keep distances of int
-  left_join(meta %>% select(te_id, age, sex, bmi))
+  left_join(meta %>% select(te_id, age, sex, bmi, Race))
 
 # plot correlation bet distances and age
 pairs.dis %>%
@@ -87,13 +87,22 @@ pairs.dis %>%
   facet_wrap(~pair, scales = "free") + labs(y="measured distance")
 ggsave("figs/corr_facial-distances-and-sex.png", bg = "white",
        width = 12, height = 12, units = "in", dpi = 360)
+# plot correlation bet distances and race
+pairs.dis %>%
+  pivot_longer(cols = starts_with("P_"), names_to = "pair", values_to = "v1") %>%
+  ggplot(aes(x=Race, y=v1, fill = Race)) +
+  geom_violin()+geom_boxplot(width = 0.1, fill = "white")+
+  ggpubr::stat_compare_means(color = "red", size = 3)+
+  facet_wrap(~pair, scales = "free_y") + labs(y="measured distance")
+ggsave("figs/corr_facial-distances-and-race.png", bg = "white",
+       width = 12, height = 12, units = "in", dpi = 360)
 
 # correct pairs distances for age, sex, and interaction
 # 
 res.pairs <- cbind(te_id = pairs.dis$te_id,
                    apply(pairs.dis %>% select(starts_with("P_")), MARGIN = 2, FUN = function(x) {
-                     residuals(glm(y ~ age + sex + age:sex + bmi, 
-                                   data = cbind(pairs.dis %>% select(age, sex, bmi) %>%
+                     residuals(glm(y ~ age + sex + age:sex + bmi + Race, 
+                                   data = cbind(pairs.dis %>% select(age, sex, bmi,Race) %>%
                                                   mutate(sex = as.factor(sex)),
                                                 y = x)))
                      }) %>%
@@ -128,7 +137,8 @@ corr.table(m123 %>% select(any_of(c(colnames(m1), colnames(m2))),
   my.guides
 ggsave(filename = paste0("figs/corr_facial-distances-IQ-",
                          # "no-correction",
-                         "age-sex-inter-bmi-corrected",
+                         # "age-sex-inter-bmi-corrected",
+                         "age-sex-inter-bmi-race-corrected",
                          ".png"),
        width = 8, height = 8, units = "in", dpi = 320, bg = "white")
 ################################################################################
@@ -140,7 +150,7 @@ ggsave(filename = paste0("figs/corr_facial-distances-IQ-",
 ################################################################################
 # get facial areas
 areas <- read_csv("data/derivatives/facial.areas.csv") %>%
-  left_join(meta %>% select(te_id, age, sex, bmi))
+  left_join(meta %>% select(te_id, age, sex, bmi, Race))
 
 
 # plot correlation bet areas and age
@@ -168,13 +178,22 @@ areas %>%
   facet_wrap(~area, scales = "free") + labs(y="measured area")
 ggsave("figs/corr_facial-areas-and-sex.png", bg = "white",
        width = 12, height = 12, units = "in", dpi = 360)
+# plot correlation bet areas and race
+areas %>%
+  pivot_longer(cols = starts_with("A_"), names_to = "area", values_to = "v1") %>%
+  ggplot(aes(x=Race, y=v1, fill = Race)) +
+  geom_violin()+geom_boxplot(width = 0.1, fill = "white")+
+  ggpubr::stat_compare_means(color = "red", size = 3)+
+  facet_wrap(~area, scales = "free_y") + labs(y="measured area")
+ggsave("figs/corr_facial-areas-and-race.png", bg = "white",
+       width = 12, height = 12, units = "in", dpi = 360)
 
 
 # correct areas for age, sex, and interaction
 res.areas <- cbind(te_id = areas$te_id,
                    apply(areas %>% select(starts_with("A_")), MARGIN = 2, FUN = function(x) {
-                     residuals(glm(y ~ age + sex + age:sex + bmi, 
-                                   data = cbind(areas %>% select(age, sex, bmi) %>%
+                     residuals(glm(y ~ age + sex + age:sex + bmi + Race, 
+                                   data = cbind(areas %>% select(age, sex, bmi, Race) %>%
                                                   mutate(sex = as.factor(sex)),
                                                 y = x)))
                      }) %>%
@@ -214,7 +233,8 @@ corr.table(m124 %>% select(any_of(c(colnames(m1), colnames(m2))),
   my.guides
 ggsave(filename = paste0("figs/corr_facial-areas-IQ",
                          # "no-correction",
-                         "age-sex-inter-bmi-corrected",
+                         # "age-sex-inter-bmi-corrected",
+                         "age-sex-inter-bmi-race-corrected",
                          ".png"),
        width = 8, height = 8, units = "in", dpi = 320, bg = "white")
 # make scatterplots?
@@ -233,7 +253,8 @@ p <- m124 %>%
   ggh4x::facet_grid2(rows = vars(facial_area), cols = vars(iq), scales = "free")
 ggsave(p, filename = paste0("figs/corr_facial-areas-IQ_scatter",
                             # "no-correction",
-                            "age-sex-inter-bmi-corrected",
+                            # "age-sex-inter-bmi-corrected",
+                            "age-sex-inter-bmi-race-corrected",
                             ".png"), bg = "white",
        width = 20, height = 6, units = "in", dpi = 360)
 # get correlatin between areas and PS-VC performance
@@ -259,7 +280,8 @@ corr.table(m125 %>% select(any_of(colnames(ps.summ)),
   my.guides
 ggsave(filename = paste0("figs/corr_facial-areas-PS-VC",
                          # "no-correction",
-                         "age-sex-inter-bmi-corrected",
+                         # "age-sex-inter-bmi-corrected",
+                         "age-sex-inter-bmi-race-corrected",
                          ".png"),
        width = 8, height = 8, units = "in", dpi = 320, bg = "white")
 
