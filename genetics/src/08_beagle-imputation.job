@@ -1,0 +1,42 @@
+#! /bin/bash
+#$ -cwd
+#$ -q JM,UI,CCOM
+#$ -pe smp 28
+#$ -N beagle-imputation
+#$ -o logs/$JOB_NAME.log
+#$ -j y
+#$ -ckpt user
+
+## ---------------------------------------------------------------------
+## script will run beagle imputation per chromosome and use 1KG as a ref panel
+## ---------------------------------------------------------------------
+# I tried the Michigan imputation server, and it didn't work
+# so, I had to do it with beagle :3
+## ---------------------------------------------------------------------
+
+conda activate EGA
+
+PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/genetics
+cd ${PROJECT_DIR}
+
+
+REFERENCE_BREF=/Dedicated/jmichaelson-wdata/msmuhammad/data/genomics/ref-data/beagle/ref_data_1kg
+beagle=/Dedicated/jmichaelson-wdata/msmuhammad/workbench/genomics/beagle/beagle.22Jul22.46e.jar
+beagle_maps=/Dedicated/jmichaelson-wdata/msmuhammad/data/genomics/ref-data/beagle
+vcf_out_stem=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/by-chr
+imp_out_stem=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/imputed
+mkdir -p ${imp_out_stem}
+
+# Run imputation for each chromosome
+for CHR in {1..23}; do 
+    java -Xss5m -Xmx16g \
+      -jar $beagle \
+        gt=${vcf_out_stem}/chr${CHR}.vcf.gz \
+        ref=${REFERENCE_BREF}/chr${CHR}.1kg.phase3.bref3 \
+        map=${beagle_maps}/beagle_chr${CHR}_b38.map \
+        out=${imp_out_stem}/chr${CHR} \
+        nthreads=16 \
+        ne=20000 \
+        impute=true \
+        seed=-99999 
+done

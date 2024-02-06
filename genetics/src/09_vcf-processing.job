@@ -1,0 +1,90 @@
+#! /bin/bash
+#$ -cwd
+#$ -q JM,UI,CCOM
+#$ -pe smp 28
+#$ -N vcf-processing
+#$ -o logs/$JOB_NAME.log
+#$ -j y
+#$ -ckpt user
+
+conda activate EGA
+
+PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/genetics
+cd ${PROJECT_DIR}
+
+## ---------------------------------------------------------------------------------------------------
+## script will drop low quality variants, lift over to hg19, and convert VCF -> PLINK binary format
+## script from Lucas, with minor edits
+## ---------------------------------------------------------------------------------------------------
+
+VCF=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/samples-1-96.vcf.gz
+
+## check num of variants
+zcat $VCF | grep -v "^#" | wc -l
+## check vcf
+zcat $VCF | grep -v "^##" | head -n 5 | cut -f 1-10
+## check header
+# zcat $VCF | grep "^##"
+
+## -------------------------------------
+#### throw out low quality variants ####
+## -------------------------------------
+echo "Filtering poorly imputed variants out"
+OUT=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/samples-1-96_filtered.vcf.gz
+bcftools view -e 'INFO/INFO<0.90' $VCF -Oz -o $OUT # | bcftools +setGT -- -t q -n . -i 'FORMAT/GP>=0.80' -Oz -o
+tabix -p vcf $OUT 
+echo "Filtered VCF is here: ${OUT}"
+
+## check num of variants
+zcat $OUT | grep -v "^#" | wc -l
+zcat $OUT | grep -v "^##" | head -n 5 | cut -f 1-10
+
+## ------------------------
+#### lift over to hg19 ####
+## ------------------------
+echo "lifting over to hg19 now..."
+TMP=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/tmp.vcf
+LIFTED=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/samples-1-96_filtered_hg19.vcf.gz
+
+chain_38_19=/Dedicated/jmichaelson-wdata/msmuhammad/data/genomics/ref_data/liftOver_chains/hg38ToHg19.over.chain.gz
+FASTA_HG19=/Dedicated/jmichaelson-wdata/msmuhammad/data/genomics/ref_data/hg19/hg_19.fa
+# CrossMap documentation: https://crossmap.readthedocs.io/en/latest/
+# usage: CrossMap vcf [-h] [--chromid {a,s,l}] [--no-comp-alleles] [--compress] input.chain input.vcf refgenome.fa out_vcf
+# --chromid {a,s,l}  The style of chromosome IDs. "a" = "as-is"; "l" = "long style" (eg. "chr1", "chrX"); "s" = "short style" (eg. "1", "X").
+CrossMap vcf --chromid "l" $chain_38_19 $OUT $FASTA_HG19 $TMP
+
+## sort and index the lifted over VCF
+bcftools sort $TMP -Oz -o $LIFTED
+tabix -p vcf $LIFTED
+echo "hg19 VCF is here: $LIFTED"
+
+## check vcf
+zcat $LIFTED | head
+zcat $LIFTED | grep -v "^##" | head | cut -f 1-10 
+rm $TMP*
+
+
+## ------------------------------
+#### convert to plink format ####
+## ------------------------------
+echo "Converting to PLINK formatted files"
+PLINKOUT=${LIFTED%.vcf.gz}
+PLINK2=/Dedicated/jmichaelson-wdata/msmuhammad/workbench/genomics/bin/plink2
+
+$PLINK2 --vcf $LIFTED \
+    --make-bed --out $PLINKOUT
+
+echo "PLINK hg19 files are here: $PLINKOUT[.bed/.bim/.fam]"
+
+## check PLINK files
+head $PLINKOUT.fam
+head $PLINKOUT.bim
+
+wc -l $PLINKOUT.bim
+wc -l $PLINKOUT.fam
+## done
+
+## ---------
+echo "DONE"
+## ---------
+

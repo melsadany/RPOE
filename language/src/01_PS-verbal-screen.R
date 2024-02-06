@@ -302,7 +302,7 @@ ps.vc.metadata <- ps.vc.metadata.r %>%
 # keep participants of interest
 participants.metadata <- readxl::read_excel("data/raw/RPOE_meta.xlsx", sheet = 1)
 # change this to every new participant
-pid <- participants.metadata$te_id[47:50]
+pid <- participants.metadata$te_id[56:58]
 p.of.int <- participants.metadata %>% 
   filter(te_id %in% pid) %>%
   mutate(duration = format(as.POSIXct(duration), format = "%H:%M:%S"),

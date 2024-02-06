@@ -1,0 +1,39 @@
+#! /bin/bash
+#$ -cwd
+#$ -q JM,UI,CCOM
+#$ -pe smp 28
+#$ -N pre-imputation
+#$ -o logs/$JOB_NAME.log
+#$ -j y
+#$ -ckpt user
+
+## ---------------------------------------------------------------------
+## script will split the "all-samples.vcf.gz" to vcf file per chromosome, and prep for beagle imputation
+## ---------------------------------------------------------------------
+
+conda activate EGA
+
+PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/genetics
+cd ${PROJECT_DIR}
+
+
+VCF=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/samples-1-96.vcf.gz
+vcf_out_stem=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/by-chr
+
+CHROMOSOMES=(chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22)
+
+for CHR in "${CHROMOSOMES[@]}"
+do
+    bcftools view ${VCF} --regions ${CHR} -o ${vcf_out_stem}/tmp-${CHR}.vcf.gz -Oz
+    bcftools sort ${vcf_out_stem}/tmp-${CHR}.vcf.gz -o ${vcf_out_stem}/${CHR}.vcf.gz -Oz
+    rm ${vcf_out_stem}/tmp-${CHR}.vcf.gz
+    bcftools index ${vcf_out_stem}/${CHR}.vcf.gz
+done
+
+# apparently the beagle imputation  needs the GT field in the VCF files, which is not done 
+# So, it looks like I need to do that GT in the vcf by using this
+# -f is for fasta file of ref, make sure the fai is also there
+# the -g is for the ref annotation?
+
+REF_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/data/genomics/ref-data/hg38-ncbi
+bcftools csq -p a -f ${REF_DIR}/hg38.fa.gz -g ${REF_DIR}/hg38.refGene.gtf.gz ${input_file}

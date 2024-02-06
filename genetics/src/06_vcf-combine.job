@@ -1,0 +1,38 @@
+#! /bin/bash
+#$ -cwd
+#$ -q JM,UI,CCOM
+#$ -pe smp 56
+#$ -N vcf-combine
+#$ -o logs/$JOB_NAME.log
+#$ -j y
+#$ -ckpt user
+
+
+## ---------------------------------------------------------------------
+## script will comvine bcf files for each sample into one sample file
+## then, it will combine all these samples' files into one big cohort file
+## ---------------------------------------------------------------------
+
+conda activate EGA
+
+PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/genetics
+cd ${PROJECT_DIR}
+
+## combine all chr vcf files for each sample and save it
+while IFS=$'\t' read -r SAMPLE_ID FASTQ1 FASTQ2; do
+    echo "Sample is: ${SAMPLE_ID}"
+    bcftools concat ${PROJECT_DIR}/data/derivatives/glimpse/${SAMPLE_ID}/*.bcf -o ${PROJECT_DIR}/data/derivatives/merged-glimpse/${SAMPLE_ID}.vcf.gz -O z --threads 30
+    cd ${PROJECT_DIR}/data/derivatives/merged-glimpse; bcftools index ${PROJECT_DIR}/data/derivatives/merged-glimpse/${SAMPLE_ID}.vcf.gz --threads 30
+    echo "Done with sample: ${SAMPLE_ID}"
+done < data/sampleids
+
+## combine all samples together in one VCF
+VCF=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/samples-1-96.vcf.gz
+TMP=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/tmp.vcf.gz
+bcftools concat ${PROJECT_DIR}/data/derivatives/merged-glimpse/*.vcf.gz -o ${TMP} -O z --threads 30
+
+## sort vcf, and index it
+bcftools sort ${TMP} -o ${VCF} -Oz
+rm $TMP
+bcftools index ${VCF} --threads 30
+

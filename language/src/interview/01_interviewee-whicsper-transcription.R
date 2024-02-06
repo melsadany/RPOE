@@ -41,12 +41,25 @@ for(i in 1:nrow(files)) {
                "--verbose True",
                "--detect_disfluencies True",
                "--output_format tsv",
-               "--threads 10",
+               "--threads 30",
                "--output_dir", n.dir, 
                sep = " ")
   print(paste0(paste0("mkdir -p ", n.dir),";",cmd))
   # system(cmd)
 }
+################################################################################
+# combine the interview transcription for revision
+int.f <- data.frame(dir = list.dirs("data/derivatives/interview_transcription", recursive = F)) %>%
+  mutate(te_id = basename(dir)) %>%
+  # filter(!te_id %in% c("2E_043", "2E_041", "2E_084", "2E_085", "2E_086", "2E_087", "2E_088")) %>%
+  mutate(file = list.files(paste0(dir, "/"), pattern = "\\.m4a\\.tsv", full.names = T))
+int.all <- foreach(i=1:nrow(int.f), .combine = rbind) %dopar% {
+  df <- read_tsv(int.f$file[i]) %>%
+    filter(nchar(text) > 1)
+  data.frame(text = df$text,
+             te_id = int.f$te_id[i])
+}
+write_csv(int.all, "data/derivatives/interview_transcription/all-transcriptions-long.csv")
 ################################################################################
 # combine the interview transcription for LIWC?
 int.f <- data.frame(dir = list.dirs("data/derivatives/interview_transcription", recursive = F)) %>%

@@ -1,0 +1,39 @@
+/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/site-packages/torch/cuda/__init__.py:138: UserWarning: CUDA initialization: The NVIDIA driver on your system is too old (found version 11040). Please update your GPU driver by downloading and installing a new version from the URL: http://www.nvidia.com/Download/index.aspx Alternatively, go to: https://pytorch.org to install a PyTorch version that has been compiled with your version of the CUDA driver. (Triggered internally at ../c10/cuda/CUDAFunctions.cpp:108.)
+  return torch._C._cuda_getDeviceCount() > 0
+Traceback (most recent call last):
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/site-packages/whisper/audio.py", line 58, in load_audio
+    out = run(cmd, capture_output=True, check=True).stdout
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/subprocess.py", line 526, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['ffmpeg', '-nostdin', '-threads', '0', '-i', '/Dedicated/jmichaelson-sdata/MRI/RPOE/2E_050/phenotype/interview/split/SUBJECT_audio4801_interviewee_redo.m4a', '-f', 's16le', '-ac', '1', '-acodec', 'pcm_s16le', '-ar', '16000', '-']' returned non-zero exit status 254.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/bin/whisper_timestamped", line 8, in <module>
+    sys.exit(cli())
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/site-packages/whisper_timestamped/transcribe.py", line 2577, in cli
+    result = transcribe_timestamped(
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/site-packages/whisper_timestamped/transcribe.py", line 279, in transcribe_timestamped
+    (transcription, words) = _transcribe_timestamped_naive(model, audio,
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/site-packages/whisper_timestamped/transcribe.py", line 992, in _transcribe_timestamped_naive
+    audio = get_audio_tensor(audio)
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/site-packages/whisper_timestamped/transcribe.py", line 1265, in get_audio_tensor
+    audio = whisper.load_audio(audio)
+  File "/Users/msmuhammad/workbench/miniconda3/envs/whisper/lib/python3.10/site-packages/whisper/audio.py", line 60, in load_audio
+    raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
+RuntimeError: Failed to load audio: ffmpeg version 6.1 Copyright (c) 2000-2023 the FFmpeg developers
+  built with gcc 12.3.0 (conda-forge gcc 12.3.0-3)
+  configuration: --prefix=/home/conda/feedstock_root/build_artifacts/ffmpeg_1701804015029/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_plac --cc=/home/conda/feedstock_root/build_artifacts/ffmpeg_1701804015029/_build_env/bin/x86_64-conda-linux-gnu-cc --cxx=/home/conda/feedstock_root/build_artifacts/ffmpeg_1701804015029/_build_env/bin/x86_64-conda-linux-gnu-c++ --nm=/home/conda/feedstock_root/build_artifacts/ffmpeg_1701804015029/_build_env/bin/x86_64-conda-linux-gnu-nm --ar=/home/conda/feedstock_root/build_artifacts/ffmpeg_1701804015029/_build_env/bin/x86_64-conda-linux-gnu-ar --disable-doc --disable-openssl --enable-demuxer=dash --enable-hardcoded-tables --enable-libfreetype --enable-libharfbuzz --enable-libfontconfig --enable-libopenh264 --enable-libdav1d --enable-gnutls --enable-libmp3lame --enable-libvpx --enable-libass --enable-pthreads --enable-vaapi --enable-gpl --enable-libx264 --enable-libx265 --enable-libaom --enable-libsvtav1 --enable-libxml2 --enable-pic --enable-shared --disable-static --enable-version3 --enable-zlib --enable-libopus --pkg-config=/home/conda/feedstock_root/build_artifacts/ffmpeg_1701804015029/_build_env/bin/pkg-config
+  libavutil      58. 29.100 / 58. 29.100
+  libavcodec     60. 31.102 / 60. 31.102
+  libavformat    60. 16.100 / 60. 16.100
+  libavdevice    60.  3.100 / 60.  3.100
+  libavfilter     9. 12.100 /  9. 12.100
+  libswscale      7.  5.100 /  7.  5.100
+  libswresample   4. 12.100 /  4. 12.100
+  libpostproc    57.  3.100 / 57.  3.100
+[in#0 @ 0x55d0412a2dc0] Error opening input: No such file or directory
+Error opening input file /Dedicated/jmichaelson-sdata/MRI/RPOE/2E_050/phenotype/interview/split/SUBJECT_audio4801_interviewee_redo.m4a.
+Error opening input files: No such file or directory
+

@@ -41,18 +41,20 @@ system(paste0("mv raw_coords.csv ", "data/derivatives/landmarks.csv"))
 ######
 # if doing it for only one participant:
 py.sc <- "/Dedicated/jmichaelson-wdata/msmuhammad/workbench/customized-functions/facial_coords.py"
+iid <- "2E_091"
 cmd <- paste("python3", py.sc,
-             "--image_path", "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs/data/raw/face_2E_054.jpg",
+             "--image_path", paste0("/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs/data/raw/face_",
+                                    iid,".jpg"),
              sep = " ")
 system(cmd)
 o.landmarks <- read_csv("data/derivatives/landmarks.csv")
-n.landmarks <- read_csv("face_2E_054_coords.csv")
+n.landmarks <- read_csv(paste0("face_", iid, "_coords.csv"))
 a.landmarks <- rbind(o.landmarks %>%
                        filter(!(filename %in% n.landmarks$filename)), 
                      n.landmarks) %>%
   arrange(filename)
 write_csv(a.landmarks, "data/derivatives/landmarks.csv")
-system(paste0("rm ", "face_2E_054_coords.csv"))
+system(paste0("rm ", "face_", iid, "_coords.csv"))
 ######
 ######
 

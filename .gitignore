@@ -6,3 +6,7 @@ language/data/*
 language/archive/*
 mri/data/*
 mri/archive/*
+redcap/data/*
+3dprint/data/*
+behavior/data/*
+photographs/data/*
