@@ -103,7 +103,46 @@ write_csv(wais, "data/derivatives/wais_clean.csv")
 write_csv(wisc, "data/derivatives/wisc_clean.csv")
 write_csv(wisc.wais, "data/derivatives/wisc-and-wais_clean.csv")
 ################################################################################
+################################################################################
+# read tests data, and clean
+nih.tb <- read_csv("data/derivatives/nih-tb_clean.csv")
+iq <- read_csv("data/derivatives/wisc-and-wais_clean.csv")
+m1 <- nih.tb %>%
+  select(te_id, dev_id, ends_with("age_corrected_standard_score")) %>%
+  drop_na() %>%
+  mutate(PV_PS_age_corrected_standard_score = PV_age_corrected_standard_score - pattern_age_corrected_standard_score,
+         abs_PV_PS_age_corrected_standard_score = abs(PV_age_corrected_standard_score - pattern_age_corrected_standard_score))
+m2 <- iq %>%
+  select(dev_id, te_id,
+         paste0(c("PSI", "WM", "VCI"), "_composite_score"),
+         FSIQ, SI, VC, BD, VP, MR, DS, CD, SS) %>%
+  mutate(VCI_PSI = VCI_composite_score - PSI_composite_score,
+         abs_VCI_PSI = abs(VCI_composite_score - PSI_composite_score))
+m1.m2 <- inner_join(m1, m2) %>%
+  mutate(te_id=ifelse(is.na(te_id), dev_id, te_id)) %>%
+  rename(te_id = te_id)
+write_rds(m1.m2, "data/derivatives/m1m2.rds")
 
+# plot corr betweeb IQ and NIH-TB
+corr.table(m1.m2 %>% select(any_of(colnames(m1)), - ends_with("_id")),
+           m1.m2 %>% select(any_of(colnames(m2)), - ends_with("_id"))) %>%
+  mutate(FDR = p.adjust(pval, method = "fdr")) %>%
+  filter(V1 %in% colnames(m1),
+         V2 %in% colnames(m2)) %>%
+  mutate(V1 = sub("_age_corrected_standard_score", "", V1),
+         V2 = sub("_composite_score", "", V2)) %>%
+  ggplot(aes(x=V1, y=V2, fill = r, label = ifelse(FDR<0.05, "**", ifelse(pval<0.05, "*",""))))+
+  geom_tile()+
+  geom_text(size = 3)+
+  scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) +
+  labs(y = "IQ", x = "NIH_TB", 
+       caption = paste0("n(samples): ", nrow(m1.m2),"\n",
+                        "**   FDR<0.05", "\n",
+                        "*    pval<0.05")) +
+  my.guides
+ggsave(filename = "figs/corr-between-NIH-TB-IQ.png", bg="white",
+       width = 6, height = 6, units = "in", dpi = 320)
+rm(nih.tb);rm(iq);rm(m1);rm(m2);gc
 ################################################################################
 
 ################################################################################

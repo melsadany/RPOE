@@ -10,3 +10,5 @@ redcap/data/*
 3dprint/data/*
 behavior/data/*
 photographs/data/*
+logs/*
+genetics/logs/*
