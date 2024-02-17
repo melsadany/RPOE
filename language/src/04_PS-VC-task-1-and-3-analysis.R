@@ -234,6 +234,7 @@ setwd(project.dir)
 ################################################################################
 ################################################################################
 # load files before
+m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 # get the clean transcription for data
 all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds")
 # get the embeddings from text package
@@ -298,12 +299,16 @@ pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3
   filter(w1 != w2)
 ################################################################################
 # histogram of cosine similarity distribution for pairs
+# get a df of pairs sim, just for consec pairs
 w2_order <- pairs.sim %>% 
   select(1,2,w2_order=w_order,w2=w1) %>% distinct()
+cons.pairs <- pairs.sim %>%
+  left_join(w2_order, relationship = "many-to-many") %>%
+  mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
+  filter(consec==T)
 pairs.sim %>%
   left_join(w2_order, relationship = "many-to-many") %>%
-  filter(!(w_order==1&w2_order==1)) %>%
-  mutate(consec = ifelse(w_order==1&w2_order==2, T, F)) %>%
+  mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
   ggplot(aes(x=cos_similarity, fill = consec)) +
   geom_histogram(bins = 100) +
   facet_wrap(~task) +
@@ -317,11 +322,12 @@ ggsave(bg = "white", filename = "figs/distribution-of-cos-similarity-of-all-pair
 ######
 # correlation between consec. pairs similarity and IQ
 ######
-m125 <- left_join(pairs.sim, m1.m2) %>%
+# get a df of pairs sim, just for consec pairs
+m125 <- left_join(cons.pairs, m1.m2) %>%
   drop_na()
 library(lmerTest)
 registerDoMC(cores = 6)
-lm.results <- foreach(i=9:ncol(m125), .combine = rbind) %dopar% {
+lm.results <- foreach(i=11:ncol(m125), .combine = rbind) %dopar% {
   var <- colnames(m125)[i]
   # predict cosine similarity of the pair using the IQ/NIH measure. 
   # adding participant's ID as a random variable, and the word/mini-task
@@ -355,7 +361,7 @@ lm.results <- foreach(i=9:ncol(m125), .combine = rbind) %dopar% {
   }
 }
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
-write_rds(lm.results, "data/derivatives/pairs-lmer/all-lmer-results.rds", compress = "gz")
+# write_rds(lm.results, "data/derivatives/pairs-lmer/all-lmer-results.rds", compress = "gz")
 # make plot for results
 lm.results %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
@@ -375,8 +381,6 @@ lm.results %>%
         strip.text.y.right = element_text(angle = 0)) +
   labs(x = "Estimate for predicting cosine similarity of consecuitive pairs", y="",
        caption = paste0("n(samples): ", length(unique(m125$te_id)), "\n",
-                        "**   pval<0.05", "\n",
-                        "*    pval<0.05", "\n",
                         "the estimates are derived from the model below:", "\n",
                         "    lmer(cos_similarity ~ X + (1|te_id) + (1|word))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables"))
@@ -398,7 +402,7 @@ wait.time <- cbind(psvc.clean.v2[-nrow(psvc.clean.v2),] %>% select(-text),
                    w2_index = rownames(psvc.clean.v2)[-1],
                    wait=(psvc.clean.v2$start[-1] - psvc.clean.v2$end[-nrow(psvc.clean.v2)])/1000) %>%
   filter(wait>0)
-tmp <- inner_join(pairs.sim, wait.time)
+tmp <- inner_join(cons.pairs, wait.time)
 tmp %>% 
   ggplot(aes(x=cos_similarity, y=log2(wait))) +
   geom_point(size=1)+
@@ -581,7 +585,7 @@ lm.results <- foreach(i=6:ncol(m123), .combine = rbind) %dopar% {
   }
 }
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
-write_rds(lm.results, "data/derivatives/euc-lmer/all-lmer-results.rds", compress = "gz")
+# write_rds(lm.results, "data/derivatives/euc-lmer/all-lmer-results.rds", compress = "gz")
 # make plot for results
 lm.results %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
@@ -601,8 +605,6 @@ lm.results %>%
         strip.text.y.right = element_text(angle = 0)) +
   labs(x = "Estimate for predicting normalized full Euclidean distance", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
-                        "**   pval<0.05", "\n",
-                        "*    pval<0.05", "\n",
                         "the estimates are derived from the model below:", "\n",
                         "    lmer(normalized_euc_distance ~ X + (1|te_id) + (1|word))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
@@ -646,6 +648,13 @@ pairs.sim.3 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participan
 pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3)) %>%
   filter(w1 != w2)
 rm(pairs.sim.1);rm(pairs.sim.3);gc()
+# get a df of pairs sim, just for consec pairs
+w2_order <- pairs.sim %>% 
+  select(1,2,w2_order=w_order,w2=w1) %>% distinct()
+cons.pairs <- pairs.sim %>%
+  left_join(w2_order, relationship = "many-to-many") %>%
+  mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
+  filter(consec==T)
 ################################################################################
 #####
 # calculate the optimal and actual trajectories per participant for first 10 words per task/word
@@ -666,7 +675,7 @@ divergence <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
   df1 <- tmp %>% 
     filter(te_id == id) %>%
     pivot_longer(cols = colnames(tmp)[-1]) %>%
-    mutate(task = ifelse(nchar(name)==1,3,1))%>%filter(task==3) %>% # only look at task 3 here for divergence
+    # mutate(task = ifelse(nchar(name)==1,3,1))%>%filter(task==3) %>% # only look at task 3 here for divergence
     filter(value >=3) # make sure the participant has said at least 3 words
   # identify words to keep
   words.to.keep <- unique(df1$name)
@@ -725,25 +734,29 @@ divergence <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
   return(word.opt)
 }
 # save the divergence data
-# write_rds(divergence, "data/derivatives/divergence-w-minimum-of-3-words-per-task.rds")
+write_rds(divergence, "data/derivatives/divergence-w-minimum-of-3-words-per-task.rds")
 # divergence <- read_rds("data/derivatives/divergence-w-minimum-of-3-words-per-task.rds")
 #####
 # predict divergence
 #####
 # use the IQ/NIH-TB as a major predictor
 # add the te_id and the task name as random variables
-m123 <- inner_join(divergence, m1.m2) 
+m122 <- inner_join(divergence, m1.m2) 
+# add the average cosine similarity per word for each participant
+avg.sim <- cons.pairs %>%
+  group_by(te_id, word) %>%
+  dplyr::summarise(avg_cos_sim = mean(cos_similarity))
+m123 <- left_join(m122, avg.sim)
 library(lmerTest)
 registerDoMC(cores = 6)
-lm.results <- foreach(i=9:ncol(m123), .combine = rbind) %dopar% {
+lm.results <- foreach(i=9:35, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
   # predict divergence using the IQ/NIH measure. 
   # adding participant's ID as a random variable, and the word/mini-task
   lm <- lmerTest::lmer(global_divergence ~ xx + word_count +(1|te_id) + (1|word),
                        data = cbind(m123 %>% 
-                                      select(global_divergence, global_divergence_normalized, te_id, word, word_count) %>%
-                                      mutate(global_divergence = scale(global_divergence, scale = T, center = T)[,1],
-                                             task = ifelse(nchar(word)==1, 3,1)),
+                                      select(global_divergence, te_id, word, word_count, avg_cos_sim) %>%
+                                      mutate(global_divergence = scale(global_divergence, scale = T, center = T)[,1]),
                                     xx=m123[,i]))
   gc()
   # combine results in a df, and save
@@ -791,8 +804,6 @@ lm.results %>%
         strip.text.y.right = element_text(angle = 0)) +
   labs(x = "Estimate for predicting z-standardized divergence", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
-                        "**   pval<0.05", "\n",
-                        "*    pval<0.05", "\n",
                         "the estimates are derived from the model below:", "\n",
                         "    lmer(z-standardized_divergence ~ X + word_count + (1|te_id) + (1|word))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
@@ -806,7 +817,90 @@ lm.results %>%
                         "    Only kept participants with at least 3 words in response to task/word"))
 ggsave(filename = "figs/lmer-divergence-by-iq-and-wc-random-id-and-word.png",
        width = 7, height = 8, units = "in", bg = "white", dpi = 360)
-##
+################################################################################
+######
+# a plot for divergence example
+######
+
+## try a umap to dec dimensionality?
+tmp <- umap::umap(preserve.seed = T, n_components = 2, emb.text.m%>%select(starts_with("Dim")))
+embeddings.umap <- cbind(emb.text.m[,1:5], 
+                         tmp$layout) %>%
+  # rename(Dim1=7, Dim2=8, Dim3=9)
+  rename(Dim1=7, Dim2=8)
+
+#####
+# define examples of small and large divergence
+###
+### actual plot 
+### 
+library(TSP)
+id = "2E_086"
+w0 = "A"
+p.data <- all %>%
+  filter(te_id == id, word == w0) %>%
+  select(te_id, word, text) %>%
+  rownames_to_column("order") %>%
+  left_join(divergence)
+p1 <- p.data %>%
+  left_join(embeddings.umap %>% mutate(w1=text)) %>%
+  mutate(cat = "small") %>%
+  ggplot(aes(x=Dim1, y=Dim2, label = w1)) +
+  geom_path(show.legend = F,  color = "grey", alpha = 0.7) + geom_text(show.legend = F) +
+  labs(title = "Actual Path", 
+       subtitle = paste0("Divergence = ", 
+                         round(unique(as.numeric(divergence %>% filter(te_id==id, word==w0)%>%select(global_divergence))), 3)))
+### optimal order
+df3 <- pairs.sim %>%
+  filter(te_id ==id, word==w0) %>%
+  pivot_wider(names_from = "w2", values_from = "cos_similarity", id_cols = "w1") %>%
+  column_to_rownames("w1"); df3 <- df3[,rownames(df3)]
+distance.matrix <- as.dist(1 - df3) # convert cosine similarity matrix to a distance matrix
+tsp.dist <- TSP(distance.matrix) # travelling salesman problem
+tsp.sol <- as.integer(solve_TSP(tsp.dist, method = "repetitive_nn"))
+df4 <- data.frame(w_order = tsp.sol, text = rownames(df3)[tsp.sol])
+p2 <- left_join(df4, p.data) %>%
+  left_join(embeddings.umap %>% mutate(w1=text)) %>%
+  ggplot(aes(x=Dim1, y=Dim2, label = w1)) +
+  geom_path(show.legend = F,  color = "grey", alpha = 0.7) + geom_text(show.legend = F) +
+  labs(title = "Optimal Path")
+h.d <- patchwork::wrap_plots(p1,p2,ncol = 1)
+## low divergence
+id = "2E_072"
+w0 = "paper"
+p.data <- all %>%
+  filter(te_id == id, word == w0) %>%
+  select(te_id, word, text) %>%
+  rownames_to_column("order") %>%
+  left_join(divergence)
+p1 <- p.data %>%
+  left_join(embeddings.umap %>% mutate(w1=text)) %>%
+  mutate(cat = "small") %>%
+  ggplot(aes(x=Dim1, y=Dim2, label = w1)) +
+  geom_path(show.legend = F,  color = "grey", alpha = 0.7) + geom_text(show.legend = F) +
+  labs(title = "Actual Path", 
+       subtitle = paste0("Divergence = ", 
+                         round(unique(as.numeric(divergence %>% filter(te_id==id, word==w0)%>%select(global_divergence))), 3)))
+### optimal order
+df3 <- pairs.sim %>%
+  filter(te_id ==id, word==w0) %>%
+  pivot_wider(names_from = "w2", values_from = "cos_similarity", id_cols = "w1") %>%
+  column_to_rownames("w1"); df3 <- df3[,rownames(df3)]
+distance.matrix <- as.dist(1 - df3) # convert cosine similarity matrix to a distance matrix
+tsp.dist <- TSP(distance.matrix) # travelling salesman problem
+tsp.sol <- as.integer(solve_TSP(tsp.dist, method = "repetitive_nn"))
+df4 <- data.frame(w_order = tsp.sol, text = rownames(df3)[tsp.sol])
+p2 <- left_join(df4, p.data) %>%
+  left_join(embeddings.umap %>% mutate(w1=text)) %>%
+  ggplot(aes(x=Dim1, y=Dim2, label = w1)) +
+  geom_path(show.legend = F,  color = "grey", alpha = 0.7) + geom_text(show.legend = F) +
+  labs(title = "Optimal Path")
+l.d <- patchwork::wrap_plots(p1,p2,ncol = 1)
+######
+# combine both plots, and save
+patchwork::wrap_plots(h.d, l.d, nrow = 1)
+ggsave("figs/example-divergence-umap-2d.png", bg = "white",
+       width = 8, height = 8, units = "in", dpi=360)
 ################################################################################
 ################################################################################
 ################################################################################
@@ -823,6 +917,7 @@ rm(list=ls());gc();source("/Dedicated/jmichaelson-wdata/msmuhammad/msmuhammad-so
 project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language"
 setwd(project.dir)
 library(text)
+library(umap)
 ################################################################################
 ################################################################################
 # load files before
@@ -835,102 +930,188 @@ rm(emb.text);rm(emb.word);gc()
 emb.text.m <- emb.text.m %>% distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
 ################################################################################
 #####
-# calculate the vocabulary depth as the total volume between embeddings points in space
+# calculate the vocabulary depth as the total volume between embeddings/UMAP points in space
 #####
 #####
+# get UMAP for embeddings
+tmp.emb <- emb.text.m %>% distinct(text, .keep_all = T)
+umap.o <- umap(tmp.emb %>% 
+                 select(starts_with("Dim")) %>% 
+                 as.matrix(), 
+               n_components = 3, preserve.seed = T)
+umap.dim <- cbind(tmp.emb[,1:5],
+                  umap.o$layout %>%
+                    as.data.frame() %>%
+                    rename_all(.funs = function(x) paste0("Dim", sub("V", "", x))))
+write_rds(umap.dim, "data/derivatives/umap-3d-from-psvc-embeddings.rds", compress = "gz")
+# umap.dim <- read_rds("data/derivatives/umap-3d-from-psvc-embeddings.rds")
+# 
 registerDoMC(cores = 6)
 chulls <- foreach(i=1:length(unique(emb.text.m$te_id)), .combine = rbind) %dopar% {
   id <- unique(emb.text.m$te_id)[i]
   # get data for selected id
-  df <- emb.text.m %>%
-    filter(te_id==id) %>%
+  df <- umap.dim %>%
+    filter(te_id==id, task==3) %>%
     distinct(text, .keep_all=T)
-  df2 <- df[,-c(1:4)] %>%
-    column_to_rownames("text")
-  int.f <- list.files(paste0("data/derivatives/interview_transcription/", 
-           id,"/"), pattern = "words", full.names = T)
-  if (length(int.f)>0) {
-    t <- read_tsv(int.f) %>%
-      mutate(text=tolower(text)) %>%
-      distinct(text)
-    emb.int <- textEmbed(unique(t$text))
-    emb.int.m <- emb.int$texts$texts
-    emb.int.m <- cbind(text = unique(t$text), emb.int.m) %>%
-      column_to_rownames("text")
-    un.words <- unique(c(rownames(df2), rownames(emb.int.m)))
-    df3 <- rbind(df2, emb.int.m)[un.words,]
+    # filter(!grepl(paste("two", "four", "fourth", "five", "fives", "six", "seven", "seventeen", collapse = "|"), text))
+  vol.all <- cxhull::cxhull(df[,6:8]%>%as.matrix())$volume
+  # what if we did the chull for each letter independently? possibly helping identify outliers source
+  df.L <- df %>% filter(word == "L") %>% select(starts_with("Dim"))
+  df.F <- df %>% filter(word == "F") %>% select(starts_with("Dim"))
+  df.C <- df %>% filter(word == "C") %>% select(starts_with("Dim"))
+  df.A <- df %>% filter(word == "A") %>% select(starts_with("Dim"))
+  df.S <- df %>% filter(word == "S") %>% select(starts_with("Dim"))
+  if (nrow(df.L)>=4) {
+    vol.L <- cxhull::cxhull(df.L%>%as.matrix())$volume
+    c.L = nrow(df.L)
   } else {
-    df3 = df2
+    vol.L = 0;c.L = 0
   }
-  
-  
-  # cvhull <- hypervolume::(df2, )
-  
-  df1 <- tmp %>% 
-    filter(te_id == id) %>%
-    pivot_longer(cols = colnames(tmp)[-1]) %>%
-    mutate(task = ifelse(nchar(name)==1,3,1))%>%filter(task==3) %>% # only look at task 3 here for divergence
-    filter(value >=3) # make sure the participant has said at least 3 words
-  # identify words to keep
-  words.to.keep <- unique(df1$name)
-  df2 <- emb.text.m %>%
-    filter(te_id==id,
-           word %in% words.to.keep)
-  # make sure the participant has an actual response for each task/word
-  if (length(words.to.keep)==0) {
+  if (nrow(df.F)>=4) {
+    vol.F <- cxhull::cxhull(df.F%>%as.matrix())$volume
+    c.F = nrow(df.F)
+  } else {
+    vol.F = 0;c.F = 0
+  }
+  if (nrow(df.C)>=4) {
+    vol.C <- cxhull::cxhull(df.C%>%as.matrix())$volume
+    c.C = nrow(df.C)
+  } else {
+    vol.C = 0;c.C = 0
+  }
+  if (nrow(df.A)>=4) {
+    vol.A <- cxhull::cxhull(df.A%>%as.matrix())$volume
+    c.A = nrow(df.A)
+  } else {
+    vol.A = 0;c.A = 0
+  }
+  if (nrow(df.S)>=4) {
+    vol.S <- cxhull::cxhull(df.S%>%as.matrix())$volume
+    c.S = nrow(df.S)
+  } else {
+    vol.S = 0;c.S = 0
+  }
+  return(data.frame(te_id = id, vol_all = vol.all, 
+                    count_all = nrow(df),
+                    vol_L = vol.L, count_L = c.L,
+                    vol_F = vol.F,count_F = c.F,
+                    vol_C = vol.C,count_C = c.C,
+                    vol_A = vol.A,count_A = c.A,
+                    vol_S = vol.S,count_S = c.S))
+}
+####
+# check distribution
+####
+# outliers are there for the total volume from all tasks combined
+chulls %>%
+  pivot_longer(cols = starts_with("vol"), names_to = "vol_source", values_to = "vol_value") %>%
+  pivot_longer(cols = starts_with("count"), names_to = "count_source", values_to = "count_value") %>%
+  mutate(vol_source = sub("vol_", "", vol_source),
+         count_source = sub("count_", "", count_source)) %>%
+  filter(vol_source == count_source) %>%
+  ggplot(aes(x=vol_value)) +
+  geom_histogram() + facet_wrap("vol_source", scales = "free") +
+  labs(title = "distribution convex hull volume of word embeddings")
+ggsave(filename = "figs/distribution-of-vocab-depth.png",
+       width = 7, height = 6, units = "in", bg = "white", dpi = 360)
+############
+# correlate with IQ
+############
+inner_join(m1.m2, chulls) %>%
+  pivot_longer(cols = c(colnames(m1.m2), -ends_with("id")), names_to = "measure") %>%
+  mutate(measure = sub("_age_corrected_standard_score", "_NIH", measure),
+         cat2 = ifelse(grepl("NIH", measure), "NIH-TB", "IQ"),
+         measure = sub("_NIH", "", measure),
+         measure = factor(measure, levels = unique(measure))) %>%
+  filter(!te_id %in% c("2E_040", "2E_081", "2E_057")) %>%
+  ggplot(aes(x=vol_all, y=value)) +
+  geom_point() +geom_smooth(method = "lm") + ggpubr::stat_cor(color = "red") +
+  facet_wrap(~measure, scales = "free") +
+  labs(caption = paste0("no correction done for anything here", "\n",
+                        "only dropped 3 outliers because of their calculated vocabulary depth"))
+ggsave(filename = "figs/corr-iq-nih-vocab-depth.png",
+       width = 12, height = 10, units = "in", bg = "white", dpi = 360)
+######################################
+# probably need to correct for randomeness coming from task
+######################################
+m123 <- inner_join(m1.m2, 
+                   chulls %>%
+                     pivot_longer(cols = starts_with("vol"), names_to = "vol_source", values_to = "vol_value") %>%
+                     pivot_longer(cols = starts_with("count"), names_to = "count_source", values_to = "count_value") %>%
+                     mutate(vol_source = sub("vol_", "", vol_source),
+                            count_source = sub("count_", "", count_source)) %>%
+                     filter(vol_source == count_source)) %>%
+  filter(vol_source != "all")
+library(lmerTest)
+registerDoMC(cores = 6)
+lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
+  var <- colnames(m123)[i]
+  # predict divergence using the IQ/NIH measure. 
+  # adding participant's ID as a random variable, and the word/mini-task
+  lm <- lmerTest::lmer(vol_value ~ xx + count_value +(1|te_id) + (1|vol_source),
+                       data = cbind(m123 %>% 
+                                      select(vol_value, vol_source, te_id, count_value) %>%
+                                      mutate(vol_value = scale(vol_value, scale = T, center = T)[,1]),
+                                    xx=m123[,i]) %>%
+                         rename(xx = 5))
+  gc()
+  # combine results in a df, and save
+  df <- coef(summary(lm)) %>%
+    as.data.frame() %>%
+    rownames_to_column("fixed") %>%
+    filter(fixed != "(Intercept)") %>%
+    mutate(confint_min = Estimate - `Std. Error`,
+           confint_max = Estimate + `Std. Error`,
+           pval = `Pr(>|t|)`,
+           var = var)
+  write_rds(df, paste0("data/derivatives/chulls-lmer/", var, ".rds"))
+  gc()
+  return(df)
+}
+# combine the saved lmer results
+lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
+  var <- colnames(m123)[i]
+  if (file.exists(paste0("data/derivatives/chulls-lmer/", var, ".rds"))) {
+    df <- read_rds(paste0("data/derivatives/chulls-lmer/", var, ".rds"))
+    return(df)
+  } else {
     return(NULL)
   }
-  # loop over words here to get traveled, and optimal distances
-  word.opt <- foreach(j = 1:length(words.to.keep), .combine = rbind) %dopar% {
-    w0 <- words.to.keep[j]
-    
-    df3 <- pairs.sim %>%
-      filter(te_id ==id, word==w0) %>%
-      pivot_wider(names_from = "w2", values_from = "cos_similarity") %>%
-      select(-c(te_id, word, w_order, task)) %>%
-      column_to_rownames("w1")
-    df3 <- df3[,rownames(df3)]
-    ######
-    # for the optimal and actual path
-    # you only need to keep the first 10 words said by task/word
-    # df3 <- df3[1:10,1:10]
-    # get the optimal trajectory
-    library(TSP)
-    distance.matrix <- as.dist(1 - df3) # convert cosine similarity matrix to a distance matrix
-    tsp.dist <- TSP(distance.matrix) # travelling salesman problem
-    tsp.sol <- as.integer(solve_TSP(tsp.dist))
-    df4 <- data.frame(w_order = tsp.sol, text = rownames(df3)[tsp.sol])
-    df5 <- data.frame(w1 = df4$text[-(nrow(df4))], # make a df with optimal path order
-                      w1_order = df4$w_order[-(nrow(df4))],
-                      w2 = df4$text[-1],
-                      w2_order = df4$w_order[-1],
-                      distance = NA)
-    for (k in 1:nrow(df5)) { # get optimal path distances
-      df5$distance[k] <- (1-df3[df5$w1_order[k],df5$w2_order[k]])
-    }
-    opt.dist <- sum(df5$distance) # this is the optimal distance for this word for this participant
-    act.order <- data.frame(w1 = rownames(df3)[-(nrow(df3))], # make a df with actual path order
-                            w1_order = c(1:(nrow(df3)-1)),
-                            w2 = colnames(df3)[-1],
-                            w2_order = c(2:nrow(df3)),
-                            distance = NA)
-    for (m in 1:nrow(act.order)) { # get actual path distances
-      act.order$distance[m] <- (1-df3[act.order$w1_order[m],act.order$w2_order[m]])
-    }
-    act.dist <- sum(act.order$distance) # this is the actual distance for this word for this participant
-    #######
-    df6 <- data.frame(te_id = id,
-                      word = w0,
-                      opt_dist = opt.dist,
-                      act_dist = act.dist,
-                      global_divergence = (act.dist - opt.dist),
-                      global_divergence_normalized = (act.dist - opt.dist)/nrow(df3),
-                      word_count = nrow(df3))
-    return(df6)
-  }
-  return(word.opt)
-  
 }
+lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
+# write_rds(lm.results, "data/derivatives/chulls-lmer/all-lmer-results.rds", compress = "gz")
+# make plot for results
+lm.results %>%
+  filter(fixed=="xx") %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
+         cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
+         var= sub("_NIH", "", var),
+         var = factor(var, levels = unique(var))) %>%
+  ggplot(aes(x=Estimate, y=var,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  ggh4x::facet_grid2(rows = vars(cat2), scales = "free", space = "free") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate for predicting z-standardized vocabulary depth", y="",
+       caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
+                        "the estimates are derived from the model below:", "\n",
+                        "    lmer(z-standardized_vocab-depth ~ X + word_count + (1|te_id) + (1|word))", "\n",
+                        "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
+                        "        and word_count is how many points/words in participant's response in this task", "\n",
+                        "Derivation of vocabulary depth was as follows:", "\n",
+                        "    vocabulary_depth = volume enclosed between 3d semantic space of words said","\n",
+                        "    765 word embeddings were derived from 'text' package and then", "\n",
+                        "        UMAP was utilized to reduce dimensions for 3D","\n",
+                        "    Only kept participants with at least 4 words in response to task/word"))
+ggsave(filename = "figs/lmer-vocab-depth-by-iq-and-wc-random-id-and-word.png",
+       width = 7, height = 8, units = "in", bg = "white", dpi = 360)
+
 
 
 ################################################################################

@@ -1,21 +1,23 @@
 #! /bin/bash
 #$ -cwd
-#$ -q JM,CCOM,UI
-#$ -pe smp 8
+#$ -q UI,JM,CCOM
+#$ -pe smp 56
 #$ -N pgs-calc-run
 #$ -o logs/$JOB_NAME.$TASK_ID.log
 #$ -j y
 #$ -ckpt user
-#$ -t 1
+#$ -t 19-118
 
 conda activate tximpute2
 
 PROJECT_DIR=/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/genetics
 cd ${PROJECT_DIR}
 ID=${SGE_TASK_ID}
-THREADS=6
-BED_PATH=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/in-hg19/samples-1-96_filtered_hg19-merged-w-1KG_hapmap.bed
+THREADS=4
+BED_PATH=${PROJECT_DIR}/data/derivatives/merged-glimpse/all-samples/in-hg19/final-merged-w-1KG_hapmap.bed
 OUT_PATH=${PROJECT_DIR}/data/derivatives/pgs
 
 RSCRIPT_F=/Dedicated/jmichaelson-wdata/msmuhammad/pipelines/PGS/01_pgs-calc-pipeline.R
 Rscript $RSCRIPT_F ${ID} ${THREADS} ${BED_PATH} ${OUT_PATH}
+
+

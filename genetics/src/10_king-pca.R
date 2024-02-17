@@ -10,10 +10,14 @@ options(bigstatsr.check.parallel.blas = FALSE);options(default.nproc.blas = NULL
 project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/genetics"
 setwd(project.dir)
 ################################################################################
+################################################################################
+##################### Script from Lucas with minor changes #####################
+################################################################################
+################################################################################
 #### file paths ####
 plink2 <- download_plink2()
 ## path to merged samples + 1000 Genomes PLINK fileset
-bedfile <- "data/derivatives/merged-glimpse/all-samples/in-hg19/samples-1-96_filtered_hg19-merged-w-1KG_hapmap.bed"
+bedfile <- "data/derivatives/merged-glimpse/all-samples/in-hg19/final-merged-w-1KG_hapmap.bed"
 #### get unrelated individuals ####
 ## KING is weird, all relatedness scores are cut in half. So, a monozygotic twin or a duplicate sample has a KING relatedness score of 0.5
 ## This command uses the default relatedness cutoff of 2nd degree relations
@@ -55,7 +59,7 @@ ggplot() +
 obj.bed$fam$sample.ID[ind.norel[S > 0.8]]
 length(ind.norel[S > 0.8])
 # drop my cohort here and keep 1KG
-to_drop <- c(ind.norel[S > 0.8], which(obj.bed$fam$sample.ID %in% c('S8_recal', 'S34_recal', "S44_recal", "S54_recal")))
+to_drop <- c(ind.norel[S > 0.8], which(obj.bed$fam$sample.ID %in% paste0("S", 1:96, "_recal")))
 ind.row <- ind.norel[-to_drop]
 ind.col <- attr(obj.svd, "subset")
 
@@ -110,8 +114,6 @@ to_drop <- tmp %>%
   filter(population == 'NDVR') %>%
   filter(pc1 < 0 & pc2 > 0) %>%
   select(1)
-tmp <- tmp %>%
-  filter(!sample.ID %in% to_drop$sample.ID)
 ## plot 
 source('/Dedicated/jmichaelson-wdata/lcasten/functions/simple_ggplot_theme.R')
 p <- tmp %>%
@@ -120,23 +122,13 @@ p <- tmp %>%
   labs(color = NULL) +
   geom_point(size = 1) +
   geom_point(data = filter(tmp, population_description == 'NDVR'), aes(color = 'NDVR'), size = 2.5, shape = 'square') +
-  scale_color_manual(
-    values = c(
-      "Iberian populations in Spain" = "coral4",
-      'Toscani in Italy' = 'chocolate1',
-      "Finnish in Finland" = "gold3",
-      "British in England and Scotland" = "darkgreen",
-      "Utah residents with Northern and Western European ancestry" = "deepskyblue",
-      'NDVR' = 'black')) +
   guides(color=guide_legend(nrow=2,byrow=TRUE)) 
 p
 # dir.create('/home/lcasten/LSS/jmichaelson-wdata/lcasten/NDVR/genomics/figures')
 p %>%
   ggsave(filename = 'figs/pca_plot.png', 
-         device = 'png', units = 'in', width = 11, height = 10, dpi = 300)
+         device = 'png', units = 'in', width = 11, height = 10, dpi = 360)
 ## looks good - we get good population separation
-
-
 #### write out PC data
 tmp %>%
   # filter(! sample.ID %in% to_drop$sample.ID) %>%
