@@ -1041,6 +1041,7 @@ m123 <- inner_join(m1.m2,
                      mutate(vol_source = sub("vol_", "", vol_source),
                             count_source = sub("count_", "", count_source)) %>%
                      filter(vol_source == count_source)) %>%
+  filter(!te_id %in% c("2E_040", "2E_081", "2E_057")) %>%
   filter(vol_source != "all")
 library(lmerTest)
 registerDoMC(cores = 6)
