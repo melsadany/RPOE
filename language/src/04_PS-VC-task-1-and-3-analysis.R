@@ -1112,9 +1112,55 @@ lm.results %>%
                         "    Only kept participants with at least 4 words in response to task/word"))
 ggsave(filename = "figs/lmer-vocab-depth-by-iq-and-wc-random-id-and-word.png",
        width = 7, height = 8, units = "in", bg = "white", dpi = 360)
-
-
-
+##############
+# plot volume of some chulls?
+##############
+# vol for 2E_089
+tt <- umap.dim %>%
+  filter(te_id == "2E_089", nchar(word)==1)
+# vol for 2E_089
+ll <- umap.dim %>%
+  filter(te_id == "2E_053", nchar(word)==1)
+# make a mesh 3d for both participants selected together
+data <- rbind(tt, ll) %>% rename(ID=te_id) %>%
+  mutate(ID = ifelse(ID=="2E_089", "A", "B"))
+# Create mesh3d plots for each ID
+library(plotly)
+plot <- plot_ly()
+# Plot for ID A
+plot <- add_trace(
+  plot,
+  x = ~data$Dim1[data$ID == "A"],
+  y = ~data$Dim2[data$ID == "A"],
+  z = ~data$Dim3[data$ID == "A"],
+  type = "mesh3d",
+  opacity = 0.5, # set opacity
+  color = I("blue"), # set color
+  name = "ID A"
+)
+# Plot for ID B
+plot <- add_trace(
+  plot,
+  x = ~data$Dim1[data$ID == "B"],
+  y = ~data$Dim2[data$ID == "B"],
+  z = ~data$Dim3[data$ID == "B"],
+  type = "mesh3d",
+  opacity = 0.5, # set opacity
+  color = I("red"), # set color
+  name = "ID B"
+)
+# Customize layout
+plot <- layout(
+  plot,
+  title = "vocabulary depth/volume example",
+  scene = list(
+    xaxis = list(title = "Dim1"),
+    yaxis = list(title = "Dim2"),
+    zaxis = list(title = "Dim3")
+  )
+)
+# Display the plot
+plot
 ################################################################################
 ################################################################################
 ################################################################################
