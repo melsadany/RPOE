@@ -408,9 +408,9 @@ tmp %>%
   geom_point(size=1)+
   geom_smooth(method = "loess", color = boxplot.colors[2]) +
   geom_smooth(method = "lm") +
-  ggpubr::stat_cor() +
-  labs(x="cosine similarity of consecuitive pair",
-       y="log2(silence time between consec. pairs (in seconds))",
+  ggpubr::stat_cor(color = "red") +
+  labs(x="cosine similarity of consecutive pair",
+       y="log2(silence time between consec. pairs)",
        caption = paste0("n(samples): ", length(unique(tmp$te_id))))
 ggsave(filename = "figs/corr-between-consec-pairs-cos-similarity-and-thinking-time.png", bg = "white",
        width = 4, height = 4, units = "in", dpi = 360)
