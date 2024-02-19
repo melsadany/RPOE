@@ -269,21 +269,28 @@ ggsave(filename = paste0("figs/corr_facial-areas-PS-VC",
 ################################################################################
 ################################################################################
 ################################################################################
+# head_circ with age, sex, bmi, race
+meta <- meta %>% drop_na(head_circ)
+res.head.circ <- residuals(glm(head_circ ~ sex, 
+                               data = meta %>% 
+                                 select(age, sex, bmi, Race, head_circ) %>%
+                                 mutate(sex = as.factor(sex))))
+meta$corrected_head_circ = res.head.circ
 # correlate IQ with head_circ
 m125 <- inner_join(meta, m1.m2) %>%
-  drop_na(head_circ) %>%
   pivot_longer(cols = c(colnames(m1.m2), -ends_with("id")), 
                names_to = "measure") %>%
   mutate(measure = sub("_age_corrected_standard_score", "_NIH", measure),
          cat2 = ifelse(grepl("NIH", measure), "NIH-TB", "IQ"),
          measure = sub("_NIH", "", measure))
 m125 %>%
-  ggplot(aes(x=value, y=head_circ)) +
+  ggplot(aes(x=value, y=corrected_head_circ)) +
   geom_point() + geom_smooth(method = "lm") +
   ggpubr::stat_cor(color = "red") +
   facet_wrap(~measure, scales = "free") +
-  labs(x = "score", y = "head circumference in cm.",
-       caption = paste0("n(samples): ", length(unique(m125$te_id))))
+  labs(x = "score", y = "head circumference",
+       caption = paste0("n(samples): ", length(unique(m125$te_id)), "\n",
+                        "head circumference was corrected for sex"))
 ggsave("figs/corr_head-circumference-IQ.png", bg = "white",
        width = 12, height = 13, units = "in", dpi = 360)
 # correlate areas with head_circ
@@ -292,12 +299,13 @@ m126 <- inner_join(meta, areas) %>%
                names_to = "area") %>%
   mutate(area = sub("A_", "", area))
 m126 %>%
-  ggplot(aes(x=value, y=head_circ)) +
+  ggplot(aes(x=value, y=corrected_head_circ)) +
   geom_point() + geom_smooth(method = "lm") +
   ggpubr::stat_cor(color = "red") +
   facet_wrap(~area, scales = "free") +
-  labs(x = "measured area", y = "head circumference in cm.",
-       caption = paste0("n(samples): ", length(unique(m126$te_id))))
+  labs(x = "measured area", y = "head circumference",
+       caption = paste0("n(samples): ", length(unique(m126$te_id)), "\n",
+                        "head circumference was corrected for sex"))
 ggsave("figs/corr_facial-areas-head-circumference.png", bg = "white",
        width = 8, height = 7, units = "in", dpi = 360)
 ################################################################################
