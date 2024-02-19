@@ -901,6 +901,38 @@ l.d <- patchwork::wrap_plots(p1,p2,ncol = 1)
 patchwork::wrap_plots(h.d, l.d, nrow = 1)
 ggsave("figs/example-divergence-umap-2d.png", bg = "white",
        width = 8, height = 8, units = "in", dpi=360)
+##################
+# get a correlations heatmap between pairs for these participants
+##################
+# 
+# low divergence
+p1 <- pairs.sim %>%
+  filter(te_id == "2E_072", word == "paper") %>%
+  ggplot(aes(x=reorder(w1, w_order), y=reorder(w2, w_order), fill = cos_similarity, label = round(cos_similarity, 4))) +
+  geom_tile() +
+  geom_text(size = 4, color = "white") +
+  scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) + 
+  my.guides +
+  labs(x="words ordered left-right based on the said order",
+       y="words ordered top-bottom based on the said order",
+       title = "participant: 2E_072",
+       subtitle = "task: 1; prompt word: paper")
+# high divergence
+p2 <- pairs.sim %>%
+  filter(te_id == "2E_086", word == "A") %>%
+  ggplot(aes(x=reorder(w1, w_order), y=reorder(w2, w_order), fill = cos_similarity, label = round(cos_similarity, 4))) +
+  geom_tile() +
+  geom_text(size = 3, color = "white") +
+  scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) + 
+  my.guides +
+  labs(x="words ordered left-right based on the said order",
+       y="words ordered top-bottom based on the said order",
+       title = "participant: 2E_086",
+       subtitle = "task: 3; prompt letter: A")
+# combine plots
+patchwork::wrap_plots(p1,p2, nrow = 1)
+ggsave("figs/example-pairs-cos-similarity-for-low-and-high-divergence.png", bg = "white",
+       width = 14, height = 8, units = "in", dpi = 360)
 ################################################################################
 ################################################################################
 ################################################################################
