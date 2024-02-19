@@ -83,3 +83,16 @@ pgs.remapped <- left_join(pgs2,
                             select(2:6, IID = seqname))
 write_rds(pgs.remapped, "data/derivatives/combined-pgs-long-format.rds", compress = "gz")
 ################################################################################
+################################################################################
+# check PGS distribution?
+pgs.remapped <- read_rds("data/derivatives/combined-pgs-long-format.rds")
+pgs.remapped %>% 
+  filter(plate == "P3") %>%
+  ggplot(aes(x=pgs_raw, fill=plate))+
+  geom_histogram()+
+  facet_wrap(~pgs_name, scales = "free")
+ggsave("figs/dist-pgs-raw-P3.png", bg = "white",
+       width = 18, height = 10, units = "in", dpi = 360)
+################################################################################
+################################################################################
+################################################################################

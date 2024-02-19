@@ -1198,6 +1198,94 @@ plot
 ################################################################################
 ################################################################################
 ################################################################################
+#################### identify semantic categories and jumping ##################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+# set up and clean
+rm(list=ls());gc();source("/Dedicated/jmichaelson-wdata/msmuhammad/msmuhammad-source.R")
+project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language"
+setwd(project.dir)
+library(text)
+library(umap)
+################################################################################
+################################################################################
+# load files before
+m1.m2 <- read_rds("data/derivatives/m1m2.rds")
+# get the clean transcription for data
+all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds")
+# get word embeddings from text package
+load("data/derivatives/word-embedding-from-text-package.rda")
+rm(emb.text);rm(emb.word);gc()
+emb.text.m <- emb.text.m %>% 
+  filter(!(te_id %in% c("2E_036", "2E_033", "2E_040"))) %>%
+  distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
+# load the pairs similarity values
+pairs.sim.1 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-1.rds"))
+pairs.sim.3 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-3.rds"))
+pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3)) %>%
+  filter(w1 != w2)
+rm(pairs.sim.1);rm(pairs.sim.3);gc()
+# get a df of pairs sim, just for consec pairs
+w2_order <- pairs.sim %>% 
+  select(1,2,w2_order=w_order,w2=w1) %>% distinct()
+cons.pairs <- pairs.sim %>%
+  left_join(w2_order, relationship = "many-to-many") %>%
+  mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
+  filter(consec==T)
+################################################################################
+#####
+# identify word categories for all words said
+#####
+#####
+tmp.emb <- emb.text.m %>% 
+  filter(task == 1) %>%
+  distinct(text, .keep_all = T) %>%
+  select(-c(1:4))
+library(text)
+registerDoMC(cores = 2)
+sim.df <- foreach(i = 1:(nrow(tmp.emb)-1), .combine = rbind) %dopar% {
+  w0 <- tmp.emb$text[i]
+  comb <- foreach (j = (i+1):(nrow(tmp.emb)), .combine = rbind) %dopar% {
+    w1 <- tmp.emb$text[j]
+    cossim <- text::textSimilarity(tmp.emb %>% 
+                                     filter(text == w0) %>%
+                                     column_to_rownames("text"),
+                                   tmp.emb %>% 
+                                     filter(text == w1) %>%
+                                     column_to_rownames("text"), 
+                                   method = "cosine")
+    df <- data.frame(first_w = w0, second_w = w1, cos_similarity = as.numeric(cossim))
+    return(df)
+  }
+  return(comb)
+}
+write_rds(sim.df, "data/derivatives/pairs-sim-by-word-all-participants-task-1.rds")
+cossim <- text::textSimilarity(tmp.emb %>% column_to_rownames("text"),
+                                tmp.emb[1:10,] %>% column_to_rownames("text"), 
+                                method = "cosine")
+# cluster
+c <- hclust(dist(tmp.emb %>% column_to_rownames("text"), method = "euclidean"),
+            method = "ward")
+plot(c)
+# probably keeping 7 categories
+groups <- cutree(c, k=6) %>% # cut tree into 5 clusters
+  as.data.frame() %>%
+  rownames_to_column("text") %>%
+  rename(group = 2)
+# draw dendogram with red borders around the 5 clusters
+rect.hclust(c, k=6, border="red")
+################################################################################
+# 
+
+
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
 ################################################################################
 ################################################################################
 ################################################################################

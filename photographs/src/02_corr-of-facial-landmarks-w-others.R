@@ -15,26 +15,7 @@ project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photograph
 setwd(project.dir)
 ################################################################################
 # read tests data
-nih.tb <- read_csv("../language/data/derivatives/nih-tb_clean.csv")
-iq <- read_csv("../language/data/derivatives/wisc-and-wais_clean.csv")
-m1 <- nih.tb %>%
-  select(te_id, dev_id, 
-         ends_with("age_corrected_standard_score")) %>%
-  drop_na() %>%
-  mutate(PV_PS_age_corrected_standard_score = PV_age_corrected_standard_score - pattern_age_corrected_standard_score,
-         abs_PV_PS_age_corrected_standard_score = abs(PV_age_corrected_standard_score - pattern_age_corrected_standard_score))
-m2 <- iq %>%
-  select(dev_id, te_id,
-         paste0(c("PSI", "WM", "VCI"), "_composite_score"),
-         FSIQ, 
-         SI, VC, BD, VP, MR, 
-         #FW, PS, IN, AR, 
-         DS, CD, SS) %>%
-  mutate(VCI_PSI = VCI_composite_score - PSI_composite_score,
-         abs_VCI_PSI = abs(VCI_composite_score - PSI_composite_score))
-m1.m2 <- inner_join(m1, m2) %>%
-  mutate(te_id=ifelse(is.na(te_id), dev_id, te_id)) %>%
-  rename(te_id = te_id)
+m1.m2 <- read_rds("../language/data/derivatives/m1m2.rds")
 ################################################################################
 # get PS-VC performance summary
 ps.summ <- read_rds("../language/data/derivatives/ps-vc-summary-data.rds") %>%
@@ -46,8 +27,8 @@ meta <- readxl::read_xlsx("../language/data/raw/RPOE_participants_metadata.xlsx"
   drop_na(DOB) %>%
   mutate(age = age(DOB, floor = F))
 vitals <- readxl::read_xlsx("../language/data/raw/RPOE Stats.xlsx", sheet = 1) %>%
-  select(devGenes_id = 2, height = 5, weight =6) %>%
-  mutate(height = as.numeric(height), weight = as.numeric(weight)) %>%
+  select(devGenes_id = 2, height = 5, weight =6, head_circ=7) %>%
+  mutate(height = as.numeric(height), weight = as.numeric(weight), head_circ = as.numeric(head_circ)) %>%
   drop_na() %>%
   mutate(bmi = weight/(height^2))
 meta <- full_join(meta, vitals)
@@ -286,7 +267,39 @@ ggsave(filename = paste0("figs/corr_facial-areas-PS-VC",
        width = 8, height = 8, units = "in", dpi = 320, bg = "white")
 
 ################################################################################
-
+################################################################################
+################################################################################
+# correlate IQ with head_circ
+m125 <- inner_join(meta, m1.m2) %>%
+  drop_na(head_circ) %>%
+  pivot_longer(cols = c(colnames(m1.m2), -ends_with("id")), 
+               names_to = "measure") %>%
+  mutate(measure = sub("_age_corrected_standard_score", "_NIH", measure),
+         cat2 = ifelse(grepl("NIH", measure), "NIH-TB", "IQ"),
+         measure = sub("_NIH", "", measure))
+m125 %>%
+  ggplot(aes(x=value, y=head_circ)) +
+  geom_point() + geom_smooth(method = "lm") +
+  ggpubr::stat_cor(color = "red") +
+  facet_wrap(~measure, scales = "free") +
+  labs(x = "score", y = "head circumference in cm.",
+       caption = paste0("n(samples): ", length(unique(m125$te_id))))
+ggsave("figs/corr_head-circumference-IQ.png", bg = "white",
+       width = 12, height = 13, units = "in", dpi = 360)
+# correlate areas with head_circ
+m126 <- inner_join(meta, areas) %>%
+  pivot_longer(cols = starts_with("A_"), 
+               names_to = "area") %>%
+  mutate(area = sub("A_", "", area))
+m126 %>%
+  ggplot(aes(x=value, y=head_circ)) +
+  geom_point() + geom_smooth(method = "lm") +
+  ggpubr::stat_cor(color = "red") +
+  facet_wrap(~area, scales = "free") +
+  labs(x = "measured area", y = "head circumference in cm.",
+       caption = paste0("n(samples): ", length(unique(m126$te_id))))
+ggsave("figs/corr_facial-areas-head-circumference.png", bg = "white",
+       width = 8, height = 7, units = "in", dpi = 360)
 ################################################################################
 
 
