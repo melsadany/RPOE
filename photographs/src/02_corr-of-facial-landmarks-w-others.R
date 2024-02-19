@@ -93,12 +93,12 @@ res.pairs <- cbind(te_id = pairs.dis$te_id,
 ################################################################################
 # get correlations between distances and IQ/NIH-TB
 m123 <- inner_join(m1.m2, res.pairs)
-corr.table(m123 %>% select(any_of(c(colnames(m1), colnames(m2))),
+corr.table(m123 %>% select(any_of(colnames(m1.m2)),
                            -ends_with("id")),
            m123 %>% select(starts_with("P_")),
            method = "pearson") %>%
   mutate(FDR = p.adjust(pval, method = "fdr")) %>%
-  filter(V1 %in% c(colnames(m1), colnames(m2)), 
+  filter(V1 %in% c(colnames(m1.m2)), 
          V2 %in% colnames(pairs.dis)) %>%
   mutate(V1 = sub("_age_corrected_standard_score", "_NIH", V1),
          cat2 = ifelse(grepl("NIH", V1), "NIH-TB", "IQ"),
@@ -189,12 +189,12 @@ res.areas <- cbind(te_id = areas$te_id,
 ################################################################################
 # get correlations between areas and IQ/NIH-TB
 m124 <- inner_join(m1.m2, res.areas)
-corr.table(m124 %>% select(any_of(c(colnames(m1), colnames(m2))),
+corr.table(m124 %>% select(any_of(c(colnames(m1.m2))),
                            -ends_with("id")),
            m124 %>% select(starts_with("A_"), "asym"),
            method = "pearson") %>%
   mutate(FDR = p.adjust(pval, method = "fdr")) %>%
-  filter(V1 %in% c(colnames(m1), colnames(m2)), 
+  filter(V1 %in% c(colnames(m1.m2)), 
          V2 %in% colnames(res.areas)) %>%
   mutate(V1 = sub("_age_corrected_standard_score", "_NIH", V1),
          cat2 = ifelse(grepl("NIH", V1), "NIH-TB", "IQ"),
@@ -224,7 +224,7 @@ p <- m124 %>%
   pivot_longer(cols = c(colnames(m1.m2), -ends_with("id")), names_to = "iq", values_to = "iq_score") %>%
   pivot_longer(cols = c(starts_with("A_"), "asym"), names_to = "facial_area", values_to = "area") %>%
   mutate(iq = sub("_age_corrected_standard_score", "_NIH", iq)) %>%
-  filter(grepl("ES", facial_area), 
+  filter(grepl("ES_R|N", facial_area), 
          grepl(paste(c("BD", "cognition", "FSIQ", "card", "picture", "VCI", "PSI", "VC", "VP"), collapse = "|"), iq)) %>%
   ggplot(aes(x=iq_score, y=area)) +
   geom_point()+
@@ -237,7 +237,7 @@ ggsave(p, filename = paste0("figs/corr_facial-areas-IQ_scatter",
                             # "age-sex-inter-bmi-corrected",
                             "age-sex-inter-bmi-race-corrected",
                             ".png"), bg = "white",
-       width = 20, height = 6, units = "in", dpi = 360)
+       width = 20, height = 9, units = "in", dpi = 360)
 # get correlatin between areas and PS-VC performance
 m125 <- inner_join(ps.summ, res.areas)
 corr.table(m125 %>% select(any_of(colnames(ps.summ)),
