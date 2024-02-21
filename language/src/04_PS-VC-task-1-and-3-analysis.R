@@ -1776,6 +1776,18 @@ all.metrics <- inner_join(pairs.res,
                                                               comm_ret.res)))))
 all <- inner_join(m1.m2, all.metrics)
 ################################################################################
+# correlation between my metrics
+corr.table(all %>% select(colnames(all.metrics)[1:4], -te_id),
+           all %>% select(colnames(all.metrics)[5:7])) %>%
+  filter(V1!=V2) %>%
+  ggplot(aes(x=V1, y=V2, fill=r, label = ifelse(pval<0.05, "*", ""))) +
+  geom_tile()+geom_text()+
+  redblack.col.gradient+my.guides+
+  labs(x="", y="")
+ggsave("figs/corr-between-embeddings-language-metrics.png", bg = "white",
+       width = 5, height = 5, units = "in", dpi = 360)
+################################################################################
+################################################################################
 # do CCA for two blocks: IQ, and measured language metrics
 library(RGCCA)
 c1 <- all %>% 
