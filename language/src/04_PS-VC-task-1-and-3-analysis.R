@@ -1078,6 +1078,7 @@ m123 <- inner_join(m1.m2,
                             count_source = sub("count_", "", count_source)) %>%
                      filter(vol_source == count_source)) %>%
   filter(!te_id %in% c("2E_040", "2E_081", "2E_057")) %>%
+  # filter(vol_value<40) %>%
   filter(vol_source != "all")
 # write_rds(m123, "data/derivatives/lmer-inputs/chulls.rds")
 library(lmerTest)
@@ -1092,7 +1093,7 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
   #                                     mutate(vol_value = scale(vol_value, scale = T, center = T)[,1]),
   #                                   xx=m123[,i]) %>%
   #                        rename(xx = 5))
-  lm <- glm(vol_value ~ xx + count_value,
+  lm <- glm(vol_value ~ xx + count_value + vol_source,
             data = cbind(m123 %>% 
                            select(vol_value, vol_source, te_id, count_value) %>%
                            mutate(vol_value = scale(vol_value, scale = T, center = T)[,1]),
@@ -1145,7 +1146,7 @@ lm.results %>%
   labs(x = "Estimate for predicting z-standardized vocabulary depth", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    glm(z-standardized_vocab-depth ~ X + word_count)", "\n",
+                        "    glm(z-standardized_vocab-depth ~ X + word_count + prompt)", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
                         "        and word_count is how many points/words in participant's response in this task", "\n",
                         "Derivation of vocabulary depth was as follows:", "\n",
@@ -1153,7 +1154,7 @@ lm.results %>%
                         "    765 word embeddings were derived from 'text' package and then", "\n",
                         "        UMAP was utilized to reduce dimensions for 3D","\n",
                         "    Only kept participants with at least 4 words in response to task/word"))
-ggsave(filename = "figs/glm-vocab-depth-by-iq-and-wc-random-id-and-word.png",
+ggsave(filename = "figs/glm-vocab-depth-by-iq-and-wc-and-word.png",
        width = 7, height = 8, units = "in", bg = "white", dpi = 360)
 ##############
 # plot volume of some chulls?

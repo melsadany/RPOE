@@ -144,7 +144,26 @@ ggsave(filename = "figs/corr-between-NIH-TB-IQ.png", bg="white",
        width = 6, height = 6, units = "in", dpi = 320)
 rm(nih.tb);rm(iq);rm(m1);rm(m2);gc
 ################################################################################
-
+################################################################################
+################################################################################
+# plot distribution of scores
+m1.m2 %>%
+  pivot_longer(cols = colnames(m1.m2)[-c(1:2)], names_to = "var") %>%
+  mutate(var = sub("_age_corrected_standard_score", "", var),
+         var = sub("_composite_score", "", var)) %>%
+  ggplot(aes(x=value))+
+  geom_histogram()+
+  facet_wrap(~var, scales = "free")
+ggsave("figs/distribution-of-IQ-NIH.png", bg = "white",
+       width = 12, height = 10, units = "in", dpi = 360)
+nih.tb %>%
+  pivot_longer(cols = contains("percentile"), names_to = "measure") %>%
+  mutate(measure = sub("_national_percentile_age_adjusted", "", measure)) %>%
+  ggplot(aes(x=value))+
+  geom_histogram()+
+  facet_wrap(~measure)
+ggsave("figs/distribution-of-NIH-percentiles.png", bg = "white",
+       width = 12, height = 10, units = "in", dpi = 360)
 ################################################################################
 
 ################################################################################

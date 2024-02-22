@@ -41,7 +41,7 @@ system(paste0("mv raw_coords.csv ", "data/derivatives/landmarks.csv"))
 ######
 # if doing it for only one participant:
 py.sc <- "/Dedicated/jmichaelson-wdata/msmuhammad/workbench/customized-functions/facial_coords.py"
-iid <- "2E_091"
+iid <- "2E_094"
 cmd <- paste("python3", py.sc,
              "--image_path", paste0("/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/photographs/data/raw/face_",
                                     iid,".jpg"),
