@@ -4,6 +4,11 @@
 rm(list = ls())
 gc()
 source("/Dedicated/jmichaelson-wdata/msmuhammad/msmuhammad-source.R")
+age <- function(dob, age.day = today(), units = "years", floor = TRUE) {
+  calc.age = lubridate::interval(dob, age.day) / lubridate::duration(num = 1, units = units)
+  if (floor) return(as.integer(floor(calc.age)))
+  return(calc.age)
+}
 ################################################################################
 ################################################################################
 project.dir <- "/Dedicated/jmichaelson-wdata/msmuhammad/projects/RPOE/language"
@@ -22,6 +27,11 @@ participants.metadata <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 1)
 p.of.int <- participants.metadata %>% 
   filter(work_on_2 != "F")
 rm(participants.metadata);rm(ps.vc.metadata.r);gc()
+# get demo and clean
+demo <- readxl::read_xlsx("data/raw/RPOE_participants_metadata.xlsx") %>%
+  mutate(age = age(dob = DOB, floor = F)) %>%
+  select(3:7)
+write_rds(demo, "data/raw/demo.rds")
 ################################################################################
 # read tests data
 m1.m2 <- read_rds("data/derivatives/m1m2.rds")
@@ -234,6 +244,7 @@ setwd(project.dir)
 ################################################################################
 ################################################################################
 # load files before
+demo <- read_rds("data/raw/demo.rds")
 m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 # get the clean transcription for data
 all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds")
@@ -297,17 +308,19 @@ pairs.sim.1 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participan
 pairs.sim.3 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-3.rds"))
 pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3)) %>%
   filter(w1 != w2)
+w2_order <- pairs.sim %>% 
+  select(1,2,w2_order=w_order,w2=w1) %>% distinct()
+pairs.sim <- pairs.sim %>%
+  left_join(w2_order, relationship = "many-to-many")
+write_rds(pairs.sim, "data/derivatives/pairs-sim-by-word-by-participant.rds")
 ################################################################################
 # histogram of cosine similarity distribution for pairs
 # get a df of pairs sim, just for consec pairs
-w2_order <- pairs.sim %>% 
-  select(1,2,w2_order=w_order,w2=w1) %>% distinct()
 cons.pairs <- pairs.sim %>%
-  left_join(w2_order, relationship = "many-to-many") %>%
   mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
   filter(consec==T)
+write_rds(cons.pairs, "data/derivatives/cons-pairs.rds")
 pairs.sim %>%
-  left_join(w2_order, relationship = "many-to-many") %>%
   mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
   ggplot(aes(x=cos_similarity, fill = consec)) +
   geom_histogram(bins = 100) +
@@ -324,29 +337,49 @@ ggsave(bg = "white", filename = "figs/distribution-of-cos-similarity-of-all-pair
 ######
 # get a df of pairs sim, just for consec pairs
 m125 <- left_join(cons.pairs, m1.m2) %>%
-  drop_na()
+  drop_na() %>%
+  left_join(demo)
 # write_rds(m125, "data/derivatives/lmer-inputs/cons-pairs.rds")
+####
+# lmer for demo
+lm <- lmerTest::lmer(cos_similarity ~ age + sex + age:sex + (1|te_id) + (1|word),
+                     data = m125 %>%
+                       select(cos_similarity, te_id, word, age, sex))
+# get summ
+demo.lmer <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
+  as.data.frame() %>%
+  rownames_to_column("fixed") %>%
+  filter(fixed != "(Intercept)") %>%
+  rename(Estimate = `Est.`,
+         confint_min = `2.5%`,
+         confint_max = `97.5%`,
+         pval = p) %>%
+  mutate(var = "demo")
+write_rds(demo.lmer, "data/derivatives/demo-lmer/pairs-sim.rds")
+####
+# lmer for IQ
 library(lmerTest)
 registerDoMC(cores = 6)
-lm.results <- foreach(i=11:ncol(m125), .combine = rbind) %dopar% {
+lm.results <- foreach(i=11:37, .combine = rbind) %dopar% {
   var <- colnames(m125)[i]
   # predict cosine similarity of the pair using the IQ/NIH measure. 
   # adding participant's ID as a random variable, and the word/mini-task
-  lm <- lmerTest::lmer(cos_similarity ~ xx + (1|te_id) + (1|word),
+  lm <- lmerTest::lmer(cos_similarity ~ xx + age + sex + age:sex + (1|te_id) + (1|word),
                        data = cbind(m125 %>% 
-                                      select(cos_similarity, te_id, word),
+                                      select(cos_similarity, te_id, word, age, sex),
                                     xx=m125[,i]) %>%
-                         rename(xx=4))
+                         rename(xx=6))
   gc()
   # combine results in a df, and save
-  df <- coef(summary(lm)) %>%
+  df <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
     as.data.frame() %>%
     rownames_to_column("fixed") %>%
     filter(fixed != "(Intercept)") %>%
-    mutate(confint_min = Estimate - `Std. Error`,
-           confint_max = Estimate + `Std. Error`,
-           pval = `Pr(>|t|)`,
-           var = var)
+    rename(Estimate = `Est.`,
+           confint_min = `2.5%`,
+           confint_max = `97.5%`,
+           pval = p) %>%
+    mutate(var = var)
   write_rds(df, paste0("data/derivatives/pairs-lmer/", var, ".rds"))
   gc()
   return(df)
@@ -364,7 +397,8 @@ lm.results <- foreach(i=9:ncol(m125), .combine = rbind) %dopar% {
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
 # write_rds(lm.results, "data/derivatives/pairs-lmer/all-lmer-results.rds", compress = "gz")
 # make plot for results
-lm.results %>%
+p1 <- lm.results %>%
+  filter(fixed == "xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
          cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
@@ -383,10 +417,27 @@ lm.results %>%
   labs(x = "Estimate for predicting cosine similarity of consecuitive pairs", y="",
        caption = paste0("n(samples): ", length(unique(m125$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    lmer(cos_similarity ~ X + (1|te_id) + (1|word))", "\n",
+                        "    lmer(cos_similarity ~ X + age + sex + age:sex + (1|te_id) + (1|prompt))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables"))
+# demographics plot
+p2 <- demo.lmer %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  ggplot(aes(x=Estimate, y=fixed,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate for predicting cosine similarity of consecuitive pairs", y="",
+       caption = paste0("n(samples): ", length(unique(m125$te_id)), "\n",
+                        "the estimates are derived from the model below:", "\n",
+                        "    lmer(cos_similarity ~ age + sex + age:sex + (1|te_id) + (1|prompt))"))
+patchwork::wrap_plots(p2,p1,ncol = 1,heights = c(1,5))
 ggsave(filename = "figs/lmer-cos-sim-consec-pairs-by-iq-random-id-and-word.png",
-       width = 6, height = 8, units = "in", bg = "white", dpi = 360)
+       width = 8, height = 10, units = "in", bg = "white", dpi = 360)
 #############
 # get correlation between consec. pairs similarity and the waiting time between these pairs
 #############
@@ -475,6 +526,7 @@ setwd(project.dir)
 ################################################################################
 ################################################################################
 # load files before
+demo <- read_rds("data/raw/demo.rds")
 # get the clean transcription for data
 all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds")
 # get word embeddings from text package
@@ -542,37 +594,53 @@ euc <- foreach(i=1:length(unique(tmp$te_id)), .combine = rbind) %dopar% {
 # save euc distances
 write_rds(euc, "data/derivatives/euc-distance-w-minimum-of-2-words-per-task.rds")
 # euc <- read_rds("data/derivatives/euc-distance-w-minimum-of-2-words-per-task.rds")
-# make the euc in wide format
-t1 <- euc %>%
-  pivot_wider(names_from = word, values_from = full_euc_dist_normalized, id_cols = te_id)
 #####
 # predict normalized Euclidean distance traveled 
 #####
 # use the IQ/NIH-TB as a major predictor
 # add the te_id and the task name as random variables
-m123 <- inner_join(euc, m1.m2) 
-# write_rds(m123, "data/derivatives/lmer-inputs/euc.rds")
+m123 <- inner_join(euc, m1.m2) %>%
+  left_join(demo)
+####
+# lmer for demo
+lm <- lmerTest::lmer(full_euc_dist_normalized ~ age + sex + age:sex + (1|te_id) + (1|word),
+                     data = m123 %>%
+                       select(full_euc_dist_normalized, te_id, word, age, sex))
+# get summ
+demo.lmer <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
+  as.data.frame() %>%
+  rownames_to_column("fixed") %>%
+  filter(fixed != "(Intercept)") %>%
+  rename(Estimate = `Est.`,
+         confint_min = `2.5%`,
+         confint_max = `97.5%`,
+         pval = p) %>%
+  mutate(var = "demo")
+write_rds(demo.lmer, "data/derivatives/demo-lmer/euc.rds")
+####
+# lmer for IQ
 library(lmerTest)
 registerDoMC(cores = 6)
-lm.results <- foreach(i=6:ncol(m123), .combine = rbind) %dopar% {
+lm.results <- foreach(i=6:32, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
   # predict euclidean distance using the IQ/NIH measure. 
   # adding participant's ID as a random variable, and the word/mini-task
-  lm <- lmerTest::lmer(full_euc_dist_normalized ~ xx + (1|te_id) + (1|word),
+  lm <- lmerTest::lmer(full_euc_dist_normalized ~ xx + age + sex + age:sex + (1|te_id) + (1|word),
                        data = cbind(m123 %>% 
-                                      select(full_euc_dist_normalized, te_id, word),
+                                      select(full_euc_dist_normalized, te_id, word, age, sex),
                                     xx=m123[,i]) %>%
-                         rename(xx=4))
+                         rename(xx=6))
   gc()
   # combine results in a df, and save
-  df <- coef(summary(lm)) %>%
+  df <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
     as.data.frame() %>%
     rownames_to_column("fixed") %>%
     filter(fixed != "(Intercept)") %>%
-    mutate(confint_min = Estimate - `Std. Error`,
-           confint_max = Estimate + `Std. Error`,
-           pval = `Pr(>|t|)`,
-           var = var)
+    rename(Estimate = `Est.`,
+           confint_min = `2.5%`,
+           confint_max = `97.5%`,
+           pval = p) %>%
+    mutate(var = var)
   write_rds(df, paste0("data/derivatives/euc-lmer/", var, ".rds"))
   gc()
   return(df)
@@ -590,7 +658,8 @@ lm.results <- foreach(i=6:ncol(m123), .combine = rbind) %dopar% {
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
 # write_rds(lm.results, "data/derivatives/euc-lmer/all-lmer-results.rds", compress = "gz")
 # make plot for results
-lm.results %>%
+p1 <- lm.results %>%
+  filter(fixed == "xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
          cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
@@ -609,15 +678,32 @@ lm.results %>%
   labs(x = "Estimate for predicting normalized full Euclidean distance", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    lmer(normalized_euc_distance ~ X + (1|te_id) + (1|word))", "\n",
+                        "    lmer(normalized_euc_distance ~ X + age + sex + age:sex + (1|te_id) + (1|prompt))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
                         "Derivation of Euclidean distance was as follows:", "\n",
                         "    distance = traveled distance by participant in each task/word","\n",
                         "    (i.e., sum of distance between consecuitive pairs)","\n",
                         "    Normalized by word count said by a participant in this task/word","\n",
                         "    Only kept participants with at least 2 words in response to task/word"))
+# demographics plot
+p2 <- demo.lmer %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  ggplot(aes(x=Estimate, y=fixed,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate for predicting normalized full Euclidean distance", y="",
+       caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
+                        "the estimates are derived from the model below:", "\n",
+                        "    lmer(normalized_euc_distance ~ age + sex + age:sex + (1|te_id) + (1|prompt))"))
+patchwork::wrap_plots(p2,p1,ncol = 1,heights = c(1,5))
 ggsave(filename = "figs/lmer-full-euc-distance-by-iq-random-id-and-word.png",
-       width = 7, height = 8, units = "in", bg = "white", dpi = 360)
+       width = 8, height = 10, units = "in", bg = "white", dpi = 360)
 ################################################################################
 ################################################################################
 ################################################################################
@@ -636,6 +722,7 @@ setwd(project.dir)
 ################################################################################
 ################################################################################
 # load files before
+demo <- read_rds("data/raw/demo.rds")
 m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 # get the clean transcription for data
 all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds") %>%
@@ -646,18 +733,10 @@ load("data/derivatives/word-embedding-from-text-package.rda")
 rm(emb.text);rm(emb.word);gc()
 emb.text.m <- emb.text.m %>% distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
 # load the pairs similarity values
-pairs.sim.1 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-1.rds"))
-pairs.sim.3 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-3.rds"))
-pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3)) %>%
+pairs.sim <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant.rds")) %>%
   filter(w1 != w2)
-rm(pairs.sim.1);rm(pairs.sim.3);gc()
 # get a df of pairs sim, just for consec pairs
-w2_order <- pairs.sim %>% 
-  select(1,2,w2_order=w_order,w2=w1) %>% distinct()
-cons.pairs <- pairs.sim %>%
-  left_join(w2_order, relationship = "many-to-many") %>%
-  mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
-  filter(consec==T)
+cons.pairs <- read_rds("data/derivatives/cons-pairs.rds")
 ################################################################################
 #####
 # calculate the optimal and actual trajectories per participant for first 10 words per task/word
@@ -750,28 +829,48 @@ m122 <- inner_join(divergence, m1.m2)
 avg.sim <- cons.pairs %>%
   group_by(te_id, word) %>%
   dplyr::summarise(avg_cos_sim = mean(cos_similarity))
-m123 <- left_join(m122, avg.sim)
+m123 <- left_join(m122, avg.sim) %>%
+  left_join(demo)
+####
+# lmer for demo
+lm <- lmerTest::lmer(global_divergence ~ word_count + age + sex + age:sex + (1|te_id) + (1|word),
+                     data = m123 %>%
+                       select(global_divergence, word_count, te_id, word, age, sex))
+# get summ
+demo.lmer <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
+  as.data.frame() %>%
+  rownames_to_column("fixed") %>%
+  filter(fixed != "(Intercept)") %>%
+  rename(Estimate = `Est.`,
+         confint_min = `2.5%`,
+         confint_max = `97.5%`,
+         pval = p) %>%
+  mutate(var = "demo")
+write_rds(demo.lmer, "data/derivatives/demo-lmer/divergence.rds")
+####
+# lmer for IQ
 library(lmerTest)
 registerDoMC(cores = 6)
 lm.results <- foreach(i=9:35, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
   # predict divergence using the IQ/NIH measure. 
   # adding participant's ID as a random variable, and the word/mini-task
-  lm <- lmerTest::lmer(global_divergence ~ xx + word_count +(1|te_id) + (1|word),
+  lm <- lmerTest::lmer(global_divergence ~ xx + word_count + age + sex + age:sex + (1|te_id) + (1|word),
                        data = cbind(m123 %>% 
-                                      select(global_divergence, te_id, word, word_count, avg_cos_sim) %>%
+                                      select(global_divergence, te_id, word, word_count, age, sex) %>%
                                       mutate(global_divergence = scale(global_divergence, scale = T, center = T)[,1]),
                                     xx=m123[,i]))
   gc()
   # combine results in a df, and save
-  df <- coef(summary(lm)) %>%
+  df <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
     as.data.frame() %>%
     rownames_to_column("fixed") %>%
     filter(fixed != "(Intercept)") %>%
-    mutate(confint_min = Estimate - `Std. Error`,
-           confint_max = Estimate + `Std. Error`,
-           pval = `Pr(>|t|)`,
-           var = var)
+    rename(Estimate = `Est.`,
+           confint_min = `2.5%`,
+           confint_max = `97.5%`,
+           pval = p) %>%
+    mutate(var = var)
   write_rds(df, paste0("data/derivatives/divergence-lmer/", var, ".rds"))
   gc()
   return(df)
@@ -789,7 +888,7 @@ lm.results <- foreach(i=9:ncol(m123), .combine = rbind) %dopar% {
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
 # write_rds(lm.results, "data/derivatives/divergence-lmer/all-lmer-results.rds", compress = "gz")
 # make plot for results
-lm.results %>%
+p1 <- lm.results %>%
   filter(fixed=="xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
@@ -809,7 +908,7 @@ lm.results %>%
   labs(x = "Estimate for predicting z-standardized divergence", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    lmer(z-standardized_divergence ~ X + word_count + (1|te_id) + (1|word))", "\n",
+                        "    lmer(z-standardized_divergence ~ X + word_count + age + sex + age:sex + (1|te_id) + (1|prompt))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
                         "        and word_count is how many points/words were in the path", "\n",
                         "Derivation of divergence was as follows:", "\n",
@@ -819,8 +918,25 @@ lm.results %>%
                         "    actual path is by following the order the participant said","\n",
                         "    (i.e., negative divergence reflects increasignly optimal word selection)", "\n", 
                         "    Only kept participants with at least 3 words in response to task/word"))
+# demographics plot
+p2 <- demo.lmer %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  ggplot(aes(x=Estimate, y=fixed,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate for predicting z-standardized divergence", y="",
+       caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
+                        "the estimates are derived from the model below:", "\n",
+                        "    lmer(z-standardized_divergence ~ word_count + age + sex + age:sex + (1|te_id) + (1|prompt))"))
+patchwork::wrap_plots(p2,p1,ncol = 1,heights = c(1,5))
 ggsave(filename = "figs/lmer-divergence-by-iq-and-wc-random-id-and-word.png",
-       width = 7, height = 8, units = "in", bg = "white", dpi = 360)
+       width = 9, height = 12, units = "in", bg = "white", dpi = 360)
 ################################################################################
 ######
 # a plot for divergence example
@@ -957,6 +1073,7 @@ library(umap)
 ################################################################################
 ################################################################################
 # load files before
+demo <- read_rds("data/raw/demo.rds")
 m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 # get the clean transcription for data
 all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds")
@@ -982,6 +1099,7 @@ umap.dim <- cbind(tmp.emb[,1:5],
 write_rds(umap.dim, "data/derivatives/umap-3d-from-psvc-embeddings.rds", compress = "gz")
 # umap.dim <- read_rds("data/derivatives/umap-3d-from-psvc-embeddings.rds")
 # 
+umap.dim <- full_join(emb.text.m[,1:5], umap.dim[,c(5:8)])
 registerDoMC(cores = 6)
 chulls <- foreach(i=1:length(unique(emb.text.m$te_id)), .combine = rbind) %dopar% {
   id <- unique(emb.text.m$te_id)[i]
@@ -1035,6 +1153,7 @@ chulls <- foreach(i=1:length(unique(emb.text.m$te_id)), .combine = rbind) %dopar
                     vol_A = vol.A,count_A = c.A,
                     vol_S = vol.S,count_S = c.S))
 }
+write_rds(chulls, "data/derivatives/chulls.rds")
 ####
 # check distribution
 ####
@@ -1059,12 +1178,12 @@ inner_join(m1.m2, chulls) %>%
          cat2 = ifelse(grepl("NIH", measure), "NIH-TB", "IQ"),
          measure = sub("_NIH", "", measure),
          measure = factor(measure, levels = unique(measure))) %>%
-  filter(!te_id %in% c("2E_040", "2E_081", "2E_057")) %>%
+  filter(!te_id %in% c("2E_091")) %>%
   ggplot(aes(x=vol_all, y=value)) +
   geom_point() +geom_smooth(method = "lm") + ggpubr::stat_cor(color = "red") +
   facet_wrap(~measure, scales = "free") +
   labs(caption = paste0("no correction done for anything here", "\n",
-                        "only dropped 3 outliers because of their calculated vocabulary depth"))
+                        "only dropped 1 outlier because of their calculated vocabulary depth"))
 ggsave(filename = "figs/corr-iq-nih-vocab-depth.png",
        width = 12, height = 10, units = "in", bg = "white", dpi = 360)
 ######################################
@@ -1077,38 +1196,50 @@ m123 <- inner_join(m1.m2,
                      mutate(vol_source = sub("vol_", "", vol_source),
                             count_source = sub("count_", "", count_source)) %>%
                      filter(vol_source == count_source)) %>%
-  filter(!te_id %in% c("2E_040", "2E_081", "2E_057")) %>%
+  filter(!te_id %in% c("2E_091")) %>%
   # filter(vol_value<40) %>%
-  filter(vol_source != "all")
+  filter(vol_source != "all") %>%
+  left_join(demo)
 # write_rds(m123, "data/derivatives/lmer-inputs/chulls.rds")
+####
+# glm for demo
+lm <- glm(vol_value ~ count_value + vol_source + age + sex + age:sex,
+          data = m123 %>%
+            select(vol_value, te_id,age, sex, count_value, vol_source))
+# get summ
+demo.lmer <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
+  as.data.frame() %>%
+  rownames_to_column("fixed") %>%
+  filter(fixed != "(Intercept)") %>%
+  rename(Estimate = `Est.`,
+         confint_min = `2.5%`,
+         confint_max = `97.5%`,
+         pval = p) %>%
+  mutate(var = "demo")
+write_rds(demo.lmer, "data/derivatives/demo-lmer/chulls.rds")
+####
+# glm for IQ
 library(lmerTest)
 registerDoMC(cores = 6)
 lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
-  # predict divergence using the IQ/NIH measure. 
-  # adding participant's ID as a random variable, and the word/mini-task
-  # lm <- lmerTest::lmer(vol_value ~ xx + count_value +(1|te_id) + (1|vol_source),
-  #                      data = cbind(m123 %>% 
-  #                                     select(vol_value, vol_source, te_id, count_value) %>%
-  #                                     mutate(vol_value = scale(vol_value, scale = T, center = T)[,1]),
-  #                                   xx=m123[,i]) %>%
-  #                        rename(xx = 5))
-  lm <- glm(vol_value ~ xx + count_value + vol_source,
+  lm <- glm(vol_value ~ xx + count_value + vol_source + age + sex + age:sex,
             data = cbind(m123 %>% 
-                           select(vol_value, vol_source, te_id, count_value) %>%
+                           select(vol_value, vol_source, te_id, count_value, age, sex) %>%
                            mutate(vol_value = scale(vol_value, scale = T, center = T)[,1]),
                          xx=m123[,i]) %>%
-              rename(xx = 5))
+              rename(xx = 7))
   gc()
   # combine results in a df, and save
-  df <- coef(summary(lm)) %>%
+  df <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
     as.data.frame() %>%
     rownames_to_column("fixed") %>%
     filter(fixed != "(Intercept)") %>%
-    mutate(confint_min = Estimate - `Std. Error`,
-           confint_max = Estimate + `Std. Error`,
-           pval = `Pr(>|t|)`,
-           var = var)
+    rename(Estimate = `Est.`,
+           confint_min = `2.5%`,
+           confint_max = `97.5%`,
+           pval = p) %>%
+    mutate(var = var)
   write_rds(df, paste0("data/derivatives/chulls-lmer/glm-all-union-", var, ".rds"))
   gc()
   return(df)
@@ -1126,7 +1257,7 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
 # write_rds(lm.results, "data/derivatives/chulls-lmer/all-lmer-results.rds", compress = "gz")
 # make plot for results
-lm.results %>%
+p1 <- lm.results %>%
   filter(fixed=="xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
@@ -1146,7 +1277,7 @@ lm.results %>%
   labs(x = "Estimate for predicting z-standardized vocabulary depth", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    glm(z-standardized_vocab-depth ~ X + word_count + prompt)", "\n",
+                        "    glm(z-standardized_vocab-depth ~ X + word_count + prompt + age + sex + age:sex)", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
                         "        and word_count is how many points/words in participant's response in this task", "\n",
                         "Derivation of vocabulary depth was as follows:", "\n",
@@ -1154,8 +1285,25 @@ lm.results %>%
                         "    765 word embeddings were derived from 'text' package and then", "\n",
                         "        UMAP was utilized to reduce dimensions for 3D","\n",
                         "    Only kept participants with at least 4 words in response to task/word"))
+# demographics plot
+p2 <- demo.lmer %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  ggplot(aes(x=Estimate, y=fixed,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate for predicting z-standardized vocabulary depth", y="",
+       caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
+                        "the estimates are derived from the model below:", "\n",
+                        "    glm(z-standardized_vocab-depth ~ word_count + prompt + age + sex + age:sex)"))
+patchwork::wrap_plots(p2,p1,ncol = 1,heights = c(1,5))
 ggsave(filename = "figs/glm-vocab-depth-by-iq-and-wc-and-word.png",
-       width = 7, height = 8, units = "in", bg = "white", dpi = 360)
+       width = 9, height = 12, units = "in", bg = "white", dpi = 360)
 ##############
 # plot volume of some chulls?
 ##############
@@ -1223,6 +1371,7 @@ setwd(project.dir)
 ################################################################################
 ################################################################################
 # load files before
+demo <- read_rds("data/raw/demo.rds")
 m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 # get the clean transcription for data
 all <- read_rds("data/derivatives/ps-vc-text-clean.rds")
@@ -1233,18 +1382,10 @@ emb.text.m <- emb.text.m %>%
   filter(!(te_id %in% c("2E_036", "2E_033", "2E_040"))) %>%
   distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
 # load the pairs similarity values
-pairs.sim.1 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-1.rds"))
-pairs.sim.3 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-3.rds"))
-pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3)) %>%
+pairs.sim <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant.rds")) %>%
   filter(w1 != w2)
-rm(pairs.sim.1);rm(pairs.sim.3);gc()
 # get a df of pairs sim, just for consec pairs
-w2_order <- pairs.sim %>% 
-  select(1,2,w2_order=w_order,w2=w1) %>% distinct()
-cons.pairs <- pairs.sim %>%
-  left_join(w2_order, relationship = "many-to-many") %>%
-  mutate(consec = ifelse(w2_order==w_order+1, T, F)) %>%
-  filter(consec==T)
+cons.pairs <- read_rds("data/derivatives/cons-pairs.rds")
 ################################################################################
 #####
 # identify word categories for all words said
@@ -1404,8 +1545,25 @@ avg.lifetime <- community.meta %>%
   group_by(te_id, word, archetype) %>%
   dplyr::summarise(mean_lifetime = mean(lifetime))
 # combine with IQ
-m123 <- inner_join(m1.m2, avg.lifetime)
+m123 <- inner_join(m1.m2, avg.lifetime) %>%
+  left_join(demo)
 # write_rds(m123, "data/derivatives/lmer-inputs/comm-lifetime.rds")
+####
+# lmer for demo
+lm <- lmerTest::lmer(mean_lifetime ~ age + sex + age:sex + (1|te_id) + (1|archetype)+ (1|word),
+                     data = m123 %>%
+                       select(mean_lifetime, te_id, word, age, sex, archetype))
+# get summ
+demo.lmer <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
+  as.data.frame() %>%
+  rownames_to_column("fixed") %>%
+  filter(fixed != "(Intercept)") %>%
+  rename(Estimate = `Est.`,
+         confint_min = `2.5%`,
+         confint_max = `97.5%`,
+         pval = p) %>%
+  mutate(var = "demo")
+write_rds(demo.lmer, "data/derivatives/demo-lmer/comm-lifetime.rds")
 #####
 # predict lifetime using IQ, random id, archetype, prompt
 #####
@@ -1415,22 +1573,23 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
   # predict mean lifetime using the IQ/NIH measure. 
   # adding participant's ID as a random variable, archetype, and prompt
-  lm <- lmerTest::lmer(mean_lifetime ~ xx +  +(1|te_id) + (1|archetype) + (1|word),
+  lm <- lmerTest::lmer(mean_lifetime ~ xx +  +age + sex + age:sex + (1|te_id) + (1|archetype) + (1|word),
                        data = cbind(m123 %>% 
-                                      select(archetype, word, te_id, mean_lifetime) %>%
+                                      select(archetype, word, te_id, mean_lifetime, age, sex) %>%
                                       mutate(mean_lifetime = log2(mean_lifetime)),
                                     xx=m123[,i]) %>%
-                         rename(xx = 5))
+                         rename(xx = 7))
   gc()
   # combine results in a df, and save
-  df <- coef(summary(lm)) %>%
+  df <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
     as.data.frame() %>%
     rownames_to_column("fixed") %>%
     filter(fixed != "(Intercept)") %>%
-    mutate(confint_min = Estimate - `Std. Error`,
-           confint_max = Estimate + `Std. Error`,
-           pval = `Pr(>|t|)`,
-           var = var)
+    rename(Estimate = `Est.`,
+           confint_min = `2.5%`,
+           confint_max = `97.5%`,
+           pval = p) %>%
+    mutate(var = var)
   write_rds(df, paste0("data/derivatives/community-lifetime-lmer/", var, ".rds"))
   gc()
   return(df)
@@ -1447,7 +1606,7 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
 }
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
 # make plot for results
-lm.results %>%
+p1 <- lm.results %>%
   filter(fixed=="xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
@@ -1467,10 +1626,27 @@ lm.results %>%
   labs(x = "Estimate for predicting log2(mean lifetime spent per archetype)", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    lmer(log2(mean_lifetime) ~ X + (1|te_id) + (1|word) + (1|archetype))", "\n",
+                        "    lmer(log2(mean_lifetime) ~ X + age + sex + age:sex + (1|te_id) + (1|prompt) + (1|archetype))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n"))
+# demographics plot
+p2 <- demo.lmer %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  ggplot(aes(x=Estimate, y=fixed,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate for predicting log2(mean lifetime spent per archetype)", y="",
+       caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
+                        "the estimates are derived from the model below:", "\n",
+                        "    lmer(log2(mean_lifetime) ~ X + age + sex + age:sex + (1|te_id) + (1|prompt) + (1|archetype))"))
+patchwork::wrap_plots(p2,p1,ncol = 1,heights = c(1,5))
 ggsave(filename = "figs/lmer-community-lifetime-by-iq-random-id-word-and-archetype.png",
-       width = 7, height = 8, units = "in", bg = "white", dpi = 360)
+       width = 9, height = 12, units = "in", bg = "white", dpi = 360)
 ##############
 ################################################################################
 ################################################################################
@@ -1483,8 +1659,25 @@ avg.returns <- community.meta %>%
   slice_max(visit_number, n = 1) %>%
   mutate(switches = visit_number-1)
 # combine with IQ
-m124 <- inner_join(m1.m2, avg.returns)
+m124 <- inner_join(m1.m2, avg.returns) %>%
+  left_join(demo)
 # write_rds(m124, "data/derivatives/lmer-inputs/comm-returns.rds")
+####
+# lmer for demo
+lm <- lmerTest::lmer(switches ~ age + sex + age:sex + (1|te_id) + (1|archetype) + (1|word),
+                     data = m124 %>%
+                       select(switches, te_id, word, age, sex, archetype))
+# get summ
+demo.lmer <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
+  as.data.frame() %>%
+  rownames_to_column("fixed") %>%
+  filter(fixed != "(Intercept)") %>%
+  rename(Estimate = `Est.`,
+         confint_min = `2.5%`,
+         confint_max = `97.5%`,
+         pval = p) %>%
+  mutate(var = "demo")
+write_rds(demo.lmer, "data/derivatives/demo-lmer/comm-returns.rds")
 #####
 # predict lifetime using IQ, random id, archetype, prompt
 #####
@@ -1494,22 +1687,23 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
   var <- colnames(m124)[i]
   # predict mean lifetime using the IQ/NIH measure. 
   # adding participant's ID as a random variable, archetype, and prompt
-  lm <- lmerTest::lmer(switches ~ xx +  +(1|te_id) + (1|archetype) + (1|word),
+  lm <- lmerTest::lmer(switches ~ xx + age + sex + age:sex +(1|te_id) + (1|archetype) + (1|word),
                        data = cbind(m124 %>% 
-                                      select(archetype, word, te_id, switches) %>%
+                                      select(archetype, word, te_id, switches, age, sex) %>%
                                       mutate(switches = scale(switches, scale = T, center = T)[,1]),
                                     xx=m124[,i]) %>%
-                         rename(xx = 5))
+                         rename(xx = 7))
   gc()
   # combine results in a df, and save
-  df <- coef(summary(lm)) %>%
+  df <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
     as.data.frame() %>%
     rownames_to_column("fixed") %>%
     filter(fixed != "(Intercept)") %>%
-    mutate(confint_min = Estimate - `Std. Error`,
-           confint_max = Estimate + `Std. Error`,
-           pval = `Pr(>|t|)`,
-           var = var)
+    rename(Estimate = `Est.`,
+           confint_min = `2.5%`,
+           confint_max = `97.5%`,
+           pval = p) %>%
+    mutate(var = var)
   write_rds(df, paste0("data/derivatives/community-returns-lmer/", var, ".rds"))
   gc()
   return(df)
@@ -1526,7 +1720,7 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
 }
 lm.results <- lm.results %>% mutate(FDR = p.adjust(pval, method = "fdr"))
 # make plot for results
-lm.results %>%
+p1 <- lm.results %>%
   filter(fixed=="xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
@@ -1546,10 +1740,27 @@ lm.results %>%
   labs(x = "Estimate for predicting z-scaled(number of returns per archetype)", y="",
        caption = paste0("n(samples): ", length(unique(m124$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    lmer(z_scaled(number of returns) ~ X + (1|te_id) + (1|word) + (1|archetype))", "\n",
+                        "    lmer(z_scaled(number of returns) ~ X + age + sex + age:sex + (1|te_id) + (1|prompt) + (1|archetype))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n"))
+# demographics plot
+p2 <- demo.lmer %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  ggplot(aes(x=Estimate, y=fixed,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate for predicting z-scaled(number of returns per archetype)", y="",
+       caption = paste0("n(samples): ", length(unique(m124$te_id)), "\n",
+                        "the estimates are derived from the model below:", "\n",
+                        "    lmer(z_scaled(number of returns) ~ age + sex + age:sex + (1|te_id) + (1|prompt) + (1|archetype))"))
+patchwork::wrap_plots(p2,p1,ncol = 1,heights = c(1,5))
 ggsave(filename = "figs/lmer-community-returns-by-iq-random-id-word-and-archetype.png",
-       width = 7, height = 8, units = "in", bg = "white", dpi = 360)
+       width = 9, height = 12, units = "in", bg = "white", dpi = 360)
 ##############
 
 
@@ -1585,7 +1796,9 @@ pairs <- foreach(i=3:29, .combine = rbind) %dopar% {
 }
 pairs <- pairs %>% 
   mutate(FDR = p.adjust(pval, method = "fdr"), 
-         source = "cos_similarity for consecutive pairs")
+         source = "cos_similarity for consec. pairs")
+pairs.demo <- read_rds("data/derivatives/demo-lmer/pairs-sim.rds") %>%
+  mutate(source = "cos_sim for consec. pairs")
 #####
 # euc lmer
 #####
@@ -1601,6 +1814,8 @@ euc <- foreach(i=3:29, .combine = rbind) %dopar% {
 euc <- euc %>% 
   mutate(FDR = p.adjust(pval, method = "fdr"), 
          source = "normalized full Euclidean distance")
+euc.demo <- read_rds("data/derivatives/demo-lmer/euc.rds") %>%
+  mutate(source = "normalized full Euclidean distance")
 #####
 # vocab depth lmer
 #####
@@ -1616,6 +1831,8 @@ v.depth <- foreach(i=3:29, .combine = rbind) %dopar% {
 v.depth <- v.depth %>% 
   mutate(FDR = p.adjust(pval, method = "fdr"), 
          source = "vocabulary depth")
+v.depth.demo <- read_rds("data/derivatives/demo-lmer/chulls.rds") %>%
+  mutate(source = "vocabulary depth")
 #####
 # divergence lmer
 #####
@@ -1631,6 +1848,8 @@ divergence <- foreach(i=3:29, .combine = rbind) %dopar% {
 divergence <- divergence %>% 
   mutate(FDR = p.adjust(pval, method = "fdr"), 
          source = "divergence")
+divergence.demo <- read_rds("data/derivatives/demo-lmer/divergence.rds") %>%
+  mutate(source = "divergence")
 #####
 # community return lmer
 #####
@@ -1646,6 +1865,8 @@ comm.returns <- foreach(i=3:29, .combine = rbind) %dopar% {
 comm.returns <- comm.returns %>% 
   mutate(FDR = p.adjust(pval, method = "fdr"), 
          source = "community returns")
+comm.returns.demo <- read_rds("data/derivatives/demo-lmer/comm-returns.rds") %>%
+  mutate(source = "community returns")
 #####
 # community lifetime lmer
 #####
@@ -1661,6 +1882,8 @@ comm.lifetime <- foreach(i=3:29, .combine = rbind) %dopar% {
 comm.lifetime <- comm.lifetime %>% 
   mutate(FDR = p.adjust(pval, method = "fdr"), 
          source = "community lifetime")
+comm.lifetime.demo <- read_rds("data/derivatives/demo-lmer/comm-lifetime.rds") %>%
+  mutate(source = "community lifetime")
 ###
 ################################################################################
 ################################################################################
@@ -1670,9 +1893,16 @@ all <- rbind(comm.lifetime,
              euc,
              divergence,
              pairs,
-             v.depth %>% mutate(df = NA))
+             v.depth %>% mutate(`d.f.` = NA))
+
+all.demo <- rbind(comm.lifetime.demo,
+                  comm.returns.demo,
+                  euc.demo,
+                  divergence.demo,
+                  pairs.demo,
+                  v.depth.demo %>% mutate(`d.f.` = NA))
 # plot
-all %>%
+p1 <- all %>%
   filter(fixed=="xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", var),
@@ -1690,8 +1920,23 @@ all %>%
   theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
         strip.text.y.right = element_text(angle = 0)) +
   labs(x = "Estimate", y="")
+p1
+p2 <- all.demo %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  ggplot(aes(x=Estimate, y=fixed)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  ggh4x::facet_grid2(cols = vars(source), scales = "free") +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey")) +
+  labs(x = "Estimate", y="")
+p2
+patchwork::wrap_plots(p2,p1, ncol = 1, heights = c(1,5))
 ggsave(filename = "figs/lmer-all-metrics-by-iq.png",
-       width = 16, height = 8, units = "in", bg = "white", dpi = 360)
+       width = 16, height = 14, units = "in", bg = "white", dpi = 360)
 #
 
 ################################################################################
@@ -1709,19 +1954,20 @@ setwd(project.dir)
 ################################################################################
 # load files before
 m1.m2 <- read_rds("data/derivatives/m1m2.rds") 
+demo <- read_rds("data/raw/demo.rds")
 #####
-pairs <- read_rds("data/derivatives/lmer-inputs/cons-pairs.rds")
-euc <- read_rds("data/derivatives/lmer-inputs/euc.rds")
-divergence <- read_rds("data/derivatives/lmer-inputs/divergence.rds")
-voc.depth <- read_rds("data/derivatives/lmer-inputs/chulls.rds")
-comm.lifetime <- read_rds("data/derivatives/lmer-inputs/comm-lifetime.rds")
-comm.returns <- read_rds("data/derivatives/lmer-inputs/comm-returns.rds")
+pairs <- read_rds("data/derivatives/lmer-inputs/cons-pairs.rds") %>% left_join(demo)
+euc <- read_rds("data/derivatives/lmer-inputs/euc.rds") %>% left_join(demo)
+divergence <- read_rds("data/derivatives/lmer-inputs/divergence.rds") %>% left_join(demo)
+voc.depth <- read_rds("data/derivatives/lmer-inputs/chulls.rds") %>% left_join(demo)
+comm.lifetime <- read_rds("data/derivatives/lmer-inputs/comm-lifetime.rds") %>% left_join(demo)
+comm.returns <- read_rds("data/derivatives/lmer-inputs/comm-returns.rds") %>% left_join(demo)
 #############
 # maybe get rid of the random effects and get mean of residuals per participant?
 library(lme4)
 # pairs res
 pairs.res <- cbind(pairs %>% select(te_id),
-                   res = residuals(glm(cos_similarity ~ word, 
+                   res = residuals(glm(cos_similarity ~ word + age + sex + age:sex, 
                                        data = pairs))) %>%
   group_by(te_id) %>%
   dplyr::summarise(cos_sim = mean(res)) %>%
@@ -1729,7 +1975,7 @@ pairs.res <- cbind(pairs %>% select(te_id),
   mutate(cos_sim = scale(cos_sim, scale = T, center = T)[,1])
 # euc res
 euc.res <- cbind(euc %>% select(te_id),
-                 res = residuals(glm(full_euc_dist_normalized ~ word, 
+                 res = residuals(glm(full_euc_dist_normalized ~ word + age + sex + age:sex, 
                                      data = euc))) %>%
   group_by(te_id) %>%
   dplyr::summarise(euc = mean(res)) %>%
@@ -1737,7 +1983,7 @@ euc.res <- cbind(euc %>% select(te_id),
   mutate(euc = scale(euc, scale = T, center = T)[,1])
 # voc depth res
 vdepth.res <- cbind(voc.depth %>% select(te_id),
-                    res = residuals(glm(vol_value ~ count_source + count_value, 
+                    res = residuals(glm(vol_value ~ count_source + count_value + age + sex + age:sex, 
                                         data = voc.depth))) %>%
   group_by(te_id) %>%
   dplyr::summarise(v_depth = mean(res)) %>%
@@ -1745,7 +1991,7 @@ vdepth.res <- cbind(voc.depth %>% select(te_id),
   mutate(v_depth = scale(v_depth, scale = T, center = T)[,1])
 # divergence res
 div.res <- cbind(divergence %>% select(te_id),
-                 res = residuals(glm(global_divergence_normalized ~ word + word_count, 
+                 res = residuals(glm(global_divergence_normalized ~ word + word_count + age + sex + age:sex, 
                                      data = divergence))) %>%
   group_by(te_id) %>%
   dplyr::summarise(div = mean(res)) %>%
@@ -1753,7 +1999,7 @@ div.res <- cbind(divergence %>% select(te_id),
   mutate(div = scale(div, scale = T, center = T)[,1])
 # comm returns res
 comm_ret.res <- cbind(comm.returns %>% select(te_id),
-                      res = residuals(glm(switches ~ word + archetype, 
+                      res = residuals(glm(switches ~ word + archetype + age + sex + age:sex, 
                                           data = comm.returns))) %>%
   group_by(te_id) %>%
   dplyr::summarise(comm_ret = mean(res)) %>%
@@ -1761,7 +2007,7 @@ comm_ret.res <- cbind(comm.returns %>% select(te_id),
   mutate(comm_ret = scale(comm_ret, scale = T, center = T)[,1])
 # comm lifetime res
 comm_life.res <- cbind(comm.lifetime %>% select(te_id),
-                       res = residuals(glm(mean_lifetime ~ word + archetype, 
+                       res = residuals(glm(mean_lifetime ~ word + archetype + age + sex + age:sex, 
                                            data = comm.lifetime))) %>%
   group_by(te_id) %>%
   dplyr::summarise(comm_life = mean(res)) %>%
