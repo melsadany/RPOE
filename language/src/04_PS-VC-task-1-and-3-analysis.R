@@ -1573,7 +1573,7 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
   # predict mean lifetime using the IQ/NIH measure. 
   # adding participant's ID as a random variable, archetype, and prompt
-  lm <- lmerTest::lmer(mean_lifetime ~ xx +  +age + sex + age:sex + (1|te_id) + (1|archetype) + (1|word),
+  lm <- lmerTest::lmer(mean_lifetime ~ xx +age + sex + age:sex + (1|te_id) + (1|archetype) + (1|word),
                        data = cbind(m123 %>% 
                                       select(archetype, word, te_id, mean_lifetime, age, sex) %>%
                                       mutate(mean_lifetime = log2(mean_lifetime)),
