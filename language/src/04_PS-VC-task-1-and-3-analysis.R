@@ -306,13 +306,14 @@ rm(pairs.sim); rm(t); gc()
 # if you already calculated the similarity before, load them here
 pairs.sim.1 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-1.rds"))
 pairs.sim.3 <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant-task-3.rds"))
-pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3)) %>%
-  filter(w1 != w2)
+pairs.sim <- rbind(pairs.sim.1 %>% mutate(task=1), pairs.sim.3 %>% mutate(task=3))
 w2_order <- pairs.sim %>% 
   select(1,2,w2_order=w_order,w2=w1) %>% distinct()
 pairs.sim <- pairs.sim %>%
-  left_join(w2_order, relationship = "many-to-many")
+  left_join(w2_order, relationship = "many-to-many") %>%
+  filter(w_order != w2_order)
 write_rds(pairs.sim, "data/derivatives/pairs-sim-by-word-by-participant.rds")
+pairs.sim <- read_rds("data/derivatives/pairs-sim-by-word-by-participant.rds")
 ################################################################################
 # histogram of cosine similarity distribution for pairs
 # get a df of pairs sim, just for consec pairs
@@ -442,10 +443,10 @@ ggsave(filename = "figs/lmer-cos-sim-consec-pairs-by-iq-random-id-and-word.png",
 # get correlation between consec. pairs similarity and the waiting time between these pairs
 #############
 psvc.clean <- read_rds("data/derivatives/ps-vc-text-clean.rds")
-psvc.v0 <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 4) %>% rename(te_id=ID)
-psvc.clean.v2 <- left_join(psvc.clean, psvc.v0 %>% select(start, end, colnames(psvc.clean))) %>%
+psvc.v0 <- readxl::read_xlsx("data/raw/RPOE_meta.xlsx", sheet = 13) %>% rename(te_id=ID)
+psvc.clean.v2 <- left_join(psvc.clean, psvc.v0 %>% select(start, end, any_of(colnames(psvc.clean)))) %>%
   filter(word != text) %>% #drop the words that are exactly the same as the prompt word
-  distinct(te_id, task, task_order, word, text, .keep_all = T) %>% # only keep unique words and drop repeated by the same participant in the same task/word
+  distinct(te_id, task, word, text, .keep_all = T) %>% # only keep unique words and drop repeated by the same participant in the same task/word
   drop_na(start, end) # drop the words with no timestamps
 wait.time <- cbind(psvc.clean.v2[-nrow(psvc.clean.v2),] %>% select(-text),
                    w1 = psvc.clean.v2$text[-nrow(psvc.clean.v2)],
@@ -454,7 +455,8 @@ wait.time <- cbind(psvc.clean.v2[-nrow(psvc.clean.v2),] %>% select(-text),
                    w2_index = rownames(psvc.clean.v2)[-1],
                    wait=(psvc.clean.v2$start[-1] - psvc.clean.v2$end[-nrow(psvc.clean.v2)])/1000) %>%
   filter(wait>0)
-tmp <- inner_join(cons.pairs, wait.time)
+tmp <- inner_join(cons.pairs, wait.time) %>%
+  drop_na(cos_similarity)
 tmp %>% 
   ggplot(aes(x=cos_similarity, y=log2(wait))) +
   geom_point(size=1)+
@@ -503,9 +505,9 @@ tmp %>%
   mutate(task = ifelse(nchar(word)==1, 3,1)) %>%
   group_by(word, value,task) %>%
   dplyr::summarise(count = n()) %>%
-  # mutate(word = factor(word, levels = reorder(word, desc(task)))) %>%
+  mutate(value = ifelse(is.na(value), 0, value)) %>%
   ggplot(aes(x=value, y=count))+
-  geom_histogram(stat = "identity")+
+  geom_bar(stat = "identity")+
   facet_wrap(~reorder(word, desc(task))) +
   geom_vline(xintercept = 5, color = "red", linetype=2) +
   labs(x="count of words said by participant",
@@ -531,7 +533,7 @@ demo <- read_rds("data/raw/demo.rds")
 all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds")
 # get word embeddings from text package
 load("data/derivatives/word-embedding-from-text-package.rda")
-rm(emb.text);rm(emb.word);gc()
+# rm(emb.text);rm(emb.word);gc()
 emb.text.m <- emb.text.m %>% distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
 m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 ################################################################################
@@ -625,7 +627,7 @@ lm.results <- foreach(i=6:32, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
   # predict euclidean distance using the IQ/NIH measure. 
   # adding participant's ID as a random variable, and the word/mini-task
-  lm <- lmerTest::lmer(full_euc_dist_normalized ~ xx + age + sex + age:sex + (1|te_id) + (1|word),
+  lm <- lmerTest::lmer(full_euc_dist_normalized ~ xx + age + sex + age:sex + + (1|word), #removed te_id
                        data = cbind(m123 %>% 
                                       select(full_euc_dist_normalized, te_id, word, age, sex),
                                     xx=m123[,i]) %>%
@@ -678,7 +680,7 @@ p1 <- lm.results %>%
   labs(x = "Estimate for predicting normalized full Euclidean distance", y="",
        caption = paste0("n(samples): ", length(unique(m123$te_id)), "\n",
                         "the estimates are derived from the model below:", "\n",
-                        "    lmer(normalized_euc_distance ~ X + age + sex + age:sex + (1|te_id) + (1|prompt))", "\n",
+                        "    lmer(normalized_euc_distance ~ X + age + sex + age:sex + (1|prompt))", "\n",
                         "    where X is a selected variable from the IQ or NIH-TB variables", "\n",
                         "Derivation of Euclidean distance was as follows:", "\n",
                         "    distance = traveled distance by participant in each task/word","\n",
@@ -730,11 +732,11 @@ all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds") %>%
   distinct(te_id, word, text, .keep_all = T)
 # get word embeddings from text package
 load("data/derivatives/word-embedding-from-text-package.rda")
-rm(emb.text);rm(emb.word);gc()
+# rm(emb.text);rm(emb.word);gc()
 emb.text.m <- emb.text.m %>% distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
 # load the pairs similarity values
 pairs.sim <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant.rds")) %>%
-  filter(w1 != w2)
+  filter(w_order != w2_order)
 # get a df of pairs sim, just for consec pairs
 cons.pairs <- read_rds("data/derivatives/cons-pairs.rds")
 ################################################################################
@@ -1079,7 +1081,7 @@ m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 all <- read_rds("data/derivatives/ps-vc-text-analyzed.rds")
 # get word embeddings from text package
 load("data/derivatives/word-embedding-from-text-package.rda")
-rm(emb.text);rm(emb.word);gc()
+# rm(emb.text);rm(emb.word);gc()
 emb.text.m <- emb.text.m %>% distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
 ################################################################################
 #####
@@ -1105,70 +1107,51 @@ chulls <- foreach(i=1:length(unique(emb.text.m$te_id)), .combine = rbind) %dopar
   id <- unique(emb.text.m$te_id)[i]
   # get data for selected id
   df <- umap.dim %>%
-    filter(te_id==id, task==3) %>%
-    distinct(text, .keep_all=T)
-    # filter(!grepl(paste("two", "four", "fourth", "five", "fives", "six", "seven", "seventeen", collapse = "|"), text))
-  vol.all <- cxhull::cxhull(df[,6:8]%>%as.matrix())$volume
-  # what if we did the chull for each letter independently? possibly helping identify outliers source
-  df.L <- df %>% filter(word == "L") %>% select(starts_with("Dim"))
-  df.F <- df %>% filter(word == "F") %>% select(starts_with("Dim"))
-  df.C <- df %>% filter(word == "C") %>% select(starts_with("Dim"))
-  df.A <- df %>% filter(word == "A") %>% select(starts_with("Dim"))
-  df.S <- df %>% filter(word == "S") %>% select(starts_with("Dim"))
-  if (nrow(df.L)>=4) {
-    vol.L <- cxhull::cxhull(df.L%>%as.matrix())$volume
-    c.L = nrow(df.L)
-  } else {
-    vol.L = 0;c.L = 0
+    filter(te_id==id)
+  vol.all <- cxhull::cxhull(df%>%distinct(text, .keep_all = T)%>%
+                              select(6:8)%>%as.matrix())$volume
+  # loop over tasks
+  met <- df %>% 
+    group_by(te_id, word) %>%
+    dplyr::summarise(count = n())
+  prompts <- met %>% filter(count>=4) %>% select(word)
+  words.voc <- foreach(j=1:length(prompts$word), .combine = rbind) %dopar% {
+    pr <- prompts$word[j]
+    df2 <- df %>% filter(word == pr) %>% select(starts_with("Dim"))
+    vol.2 <- cxhull::cxhull(df2%>%as.matrix())$volume
+    c.2 = nrow(df2)
+    return(data.frame(vol_source = pr,
+                      vol_value = vol.2,
+                      count_value = c.2))
   }
-  if (nrow(df.F)>=4) {
-    vol.F <- cxhull::cxhull(df.F%>%as.matrix())$volume
-    c.F = nrow(df.F)
-  } else {
-    vol.F = 0;c.F = 0
-  }
-  if (nrow(df.C)>=4) {
-    vol.C <- cxhull::cxhull(df.C%>%as.matrix())$volume
-    c.C = nrow(df.C)
-  } else {
-    vol.C = 0;c.C = 0
-  }
-  if (nrow(df.A)>=4) {
-    vol.A <- cxhull::cxhull(df.A%>%as.matrix())$volume
-    c.A = nrow(df.A)
-  } else {
-    vol.A = 0;c.A = 0
-  }
-  if (nrow(df.S)>=4) {
-    vol.S <- cxhull::cxhull(df.S%>%as.matrix())$volume
-    c.S = nrow(df.S)
-  } else {
-    vol.S = 0;c.S = 0
-  }
-  return(data.frame(te_id = id, vol_all = vol.all, 
-                    count_all = nrow(df),
-                    vol_L = vol.L, count_L = c.L,
-                    vol_F = vol.F,count_F = c.F,
-                    vol_C = vol.C,count_C = c.C,
-                    vol_A = vol.A,count_A = c.A,
-                    vol_S = vol.S,count_S = c.S))
+  tttmp <- data.frame(vol_source = unique(emb.text.m$word),
+                      vol_value = 0,
+                      count_value = 0) %>%
+    filter(!vol_source %in% words.voc$vol_source)
+  aa <- full_join(words.voc, tttmp) %>%
+    mutate(te_id = id, 
+           vol_all = vol.all, 
+           count_all = nrow(df))
+  return(aa)
 }
 write_rds(chulls, "data/derivatives/chulls.rds")
 ####
 # check distribution
 ####
 # outliers are there for the total volume from all tasks combined
-chulls %>%
-  pivot_longer(cols = starts_with("vol"), names_to = "vol_source", values_to = "vol_value") %>%
-  pivot_longer(cols = starts_with("count"), names_to = "count_source", values_to = "count_value") %>%
-  mutate(vol_source = sub("vol_", "", vol_source),
-         count_source = sub("count_", "", count_source)) %>%
-  filter(vol_source == count_source) %>%
+p1 <- chulls %>%
   ggplot(aes(x=vol_value)) +
   geom_histogram() + facet_wrap("vol_source", scales = "free") +
   labs(title = "distribution convex hull volume of word embeddings")
+p2 <- chulls %>%
+  distinct(te_id, vol_all) %>%
+  ggplot(aes(x=vol_all)) +
+  geom_histogram() 
+patchwork::wrap_plots(p1,patchwork::wrap_plots(p2, patchwork::plot_spacer(),
+                                               ncol = 1, heights = c(1,5)), 
+                      nrow = 1, widths = c(5,1))
 ggsave(filename = "figs/distribution-of-vocab-depth.png",
-       width = 7, height = 6, units = "in", bg = "white", dpi = 360)
+       width = 12, height = 10, units = "in", bg = "white", dpi = 360)
 ############
 # correlate with IQ
 ############
@@ -1178,29 +1161,25 @@ inner_join(m1.m2, chulls) %>%
          cat2 = ifelse(grepl("NIH", measure), "NIH-TB", "IQ"),
          measure = sub("_NIH", "", measure),
          measure = factor(measure, levels = unique(measure))) %>%
-  filter(!te_id %in% c("2E_091")) %>%
+  # filter(!te_id %in% c("2E_091")) %>%
+  filter(vol_all <100) %>%
   ggplot(aes(x=vol_all, y=value)) +
   geom_point() +geom_smooth(method = "lm") + ggpubr::stat_cor(color = "red") +
   facet_wrap(~measure, scales = "free") +
   labs(caption = paste0("no correction done for anything here", "\n",
-                        "only dropped 1 outlier because of their calculated vocabulary depth"))
+                        "outliers dropped"))
 ggsave(filename = "figs/corr-iq-nih-vocab-depth.png",
        width = 12, height = 10, units = "in", bg = "white", dpi = 360)
 ######################################
 # probably need to correct for randomeness coming from task
 ######################################
 m123 <- inner_join(m1.m2, 
-                   chulls %>%
-                     pivot_longer(cols = starts_with("vol"), names_to = "vol_source", values_to = "vol_value") %>%
-                     pivot_longer(cols = starts_with("count"), names_to = "count_source", values_to = "count_value") %>%
-                     mutate(vol_source = sub("vol_", "", vol_source),
-                            count_source = sub("count_", "", count_source)) %>%
-                     filter(vol_source == count_source)) %>%
-  filter(!te_id %in% c("2E_091")) %>%
+                   chulls) %>%
+  # filter(!te_id %in% c("2E_091")) %>%
   # filter(vol_value<40) %>%
   filter(vol_source != "all") %>%
   left_join(demo)
-# write_rds(m123, "data/derivatives/lmer-inputs/chulls.rds")
+write_rds(m123, "data/derivatives/lmer-inputs/chulls.rds")
 ####
 # glm for demo
 lm <- glm(vol_value ~ count_value + vol_source + age + sex + age:sex,
@@ -1377,13 +1356,13 @@ m1.m2 <- read_rds("data/derivatives/m1m2.rds")
 all <- read_rds("data/derivatives/ps-vc-text-clean.rds")
 # get word embeddings from text package
 load("data/derivatives/word-embedding-from-text-package.rda")
-rm(emb.text);rm(emb.word);gc()
+# rm(emb.text);rm(emb.word);gc()
 emb.text.m <- emb.text.m %>% 
   filter(!(te_id %in% c("2E_036", "2E_033", "2E_040"))) %>%
   distinct(te_id,word,text, .keep_all = T) # keep unique words per participant for each mini-task
 # load the pairs similarity values
 pairs.sim <- read_rds(paste0("data/derivatives/pairs-sim-by-word-by-participant.rds")) %>%
-  filter(w1 != w2)
+  filter(w_order != w2_order)
 # get a df of pairs sim, just for consec pairs
 cons.pairs <- read_rds("data/derivatives/cons-pairs.rds")
 ################################################################################
@@ -1392,9 +1371,9 @@ cons.pairs <- read_rds("data/derivatives/cons-pairs.rds")
 #####
 #####
 tmp.emb <- emb.text.m %>% 
-  filter(task == 1) %>%
+  # filter(task == 1) %>%
   distinct(text, .keep_all = T) %>%
-  select(-c(1:4))
+  select(-c(1:4,6:7))
 ######
 # try doing archetypes, instead of clustering for these words
 ######
@@ -1439,7 +1418,7 @@ words.categorized <- a10.long %>%
 #####
 all.cat <- left_join(all[,1:7],
                      words.categorized %>% rename(text=word)) %>%
-  filter(task==1) %>%
+  # filter(task==1) %>%
   filter(!is.na(archetype))
 # save
 write_csv(all.cat, "data/derivatives/words-categorized-by-archetype.csv")
@@ -1488,10 +1467,12 @@ community.meta <- foreach(i = 1:length(unique(all.cat$te_id)), .combine = rbind)
                    visit_start_word = id.df.3$text[l],
                    visit_start_time = id.df.3$start[l],
                    visit_last_word = id.df.3$text[l],
-                   visit_end_time = id.df.3$end[l])
+                   visit_end_time = id.df.3$end[l],
+                   visit_lifetime = visit_end_time - visit_start_time)
         } else if (id.df.3$index[l] == (id.df.3$index[l-1]+1)) {
-          a.meta$visit_last_word[visit_index] <-id.df.3$text[l]
-          a.meta$visit_end_time[visit_index] = id.df.3$end[l]
+          a.meta$visit_last_word[visit_index] <- id.df.3$text[l]
+          a.meta$visit_end_time[visit_index] <- id.df.3$end[l]
+          a.meta$visit_lifetime[visit_index] <- a.meta$visit_lifetime[visit_index] + (id.df.3$end[l] - id.df.3$start[l])
         } else if (id.df.3$index[l] != (id.df.3$index[l-1]+1)) {
           visit_index <- visit_index+1
           a.meta <- full_join(a.meta,
@@ -1503,7 +1484,8 @@ community.meta <- foreach(i = 1:length(unique(all.cat$te_id)), .combine = rbind)
                                      visit_start_word = c(a.meta$visit_start_word, id.df.3$text[l]),
                                      visit_start_time = c(a.meta$visit_start_time, id.df.3$start[l]),
                                      visit_last_word = c(a.meta$visit_last_word, id.df.3$text[l]),
-                                     visit_end_time = c(a.meta$visit_end_time, id.df.3$end[l])))
+                                     visit_end_time = c(a.meta$visit_end_time, id.df.3$end[l]),
+                                     visit_lifetime = c(a.meta$visit_lifetime, (id.df.3$end[l]-id.df.3$start[l]))))
         }
       }
       return(a.meta)
@@ -1512,8 +1494,6 @@ community.meta <- foreach(i = 1:length(unique(all.cat$te_id)), .combine = rbind)
   }
   return(tasks.meta)
 }
-community.meta <- community.meta %>%
-  mutate(lifetime = visit_end_time - visit_start_time)
 write_rds(community.meta, "data/derivatives/community-data.rds")
 # community.meta <- read_rds("data/derivatives/community-data.rds")
 ################################################################################
@@ -1526,33 +1506,34 @@ t = community.meta %>%
 # plot example
 all.cat %>%
   drop_na(start) %>%
-    filter(start>0,
-           te_id == "2E_089")%>%
-    mutate(archetype = factor(archetype, levels = paste0("A", c(1:10)))) %>%
-    ggplot(aes(x=word, y=start, fill=archetype))+
-    geom_tile(aes(height = (end - start)))+
-    scale_fill_manual(values = ten.colors) +
-    coord_flip() +
-  labs(x="time", y="prompt",
-       title = paste0("participant: 2E_089"))
+  filter(start>0,
+         te_id == "2E_023")%>%
+  mutate(archetype = factor(archetype, levels = paste0("A", c(1:10)))) %>%
+  ggplot(aes(x=word, y=start, fill=archetype))+
+  geom_tile(aes(height = (end - start)))+
+  scale_fill_manual(values = ten.colors) +
+  coord_flip() +
+  facet_wrap(~task, scales = "free", ncol = 1) +
+  labs(x="prompt", y="time",
+       title = paste0("participant: 2E_023"))
 ggsave("figs/example-community-switches-and-time.png", bg = "white",
-       width = 10, height = 7, units = "in", dpi = 360)
+       width = 10, height = 12, units = "in", dpi = 360)
 ################################################################################
 ################################################################################
 # get average lifetime per archetype per prompt per participants
 avg.lifetime <- community.meta %>%
-  filter(lifetime>0) %>%
+  filter(visit_lifetime>0) %>%
   group_by(te_id, word, archetype) %>%
-  dplyr::summarise(mean_lifetime = mean(lifetime))
+  dplyr::summarise(tot_archetype_lifetime = sum(visit_lifetime, na.rm = T))
 # combine with IQ
 m123 <- inner_join(m1.m2, avg.lifetime) %>%
   left_join(demo)
 # write_rds(m123, "data/derivatives/lmer-inputs/comm-lifetime.rds")
 ####
 # lmer for demo
-lm <- lmerTest::lmer(mean_lifetime ~ age + sex + age:sex + (1|te_id) + (1|archetype)+ (1|word),
+lm <- lmerTest::lmer(tot_archetype_lifetime ~ age + sex + age:sex + (1|te_id) + (1|archetype)+ (1|word),
                      data = m123 %>%
-                       select(mean_lifetime, te_id, word, age, sex, archetype))
+                       select(tot_archetype_lifetime, te_id, word, age, sex, archetype))
 # get summ
 demo.lmer <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
   as.data.frame() %>%
@@ -1573,10 +1554,10 @@ lm.results <- foreach(i=3:29, .combine = rbind) %dopar% {
   var <- colnames(m123)[i]
   # predict mean lifetime using the IQ/NIH measure. 
   # adding participant's ID as a random variable, archetype, and prompt
-  lm <- lmerTest::lmer(mean_lifetime ~ xx +age + sex + age:sex + (1|te_id) + (1|archetype) + (1|word),
+  lm <- lmerTest::lmer(tot_archetype_lifetime ~ xx +age + sex + age:sex + (1|te_id) + (1|archetype) + (1|word),
                        data = cbind(m123 %>% 
-                                      select(archetype, word, te_id, mean_lifetime, age, sex) %>%
-                                      mutate(mean_lifetime = log2(mean_lifetime)),
+                                      select(archetype, word, te_id, tot_archetype_lifetime, age, sex) %>%
+                                      mutate(tot_archetype_lifetime = log2(tot_archetype_lifetime/1000)),
                                     xx=m123[,i]) %>%
                          rename(xx = 7))
   gc()
@@ -1654,14 +1635,15 @@ ggsave(filename = "figs/lmer-community-lifetime-by-iq-random-id-word-and-archety
 ################################################################################
 # get number of returns per archetype per prompt per participants
 avg.returns <- community.meta %>%
-  filter(lifetime>0) %>%
+  filter(visit_lifetime>0) %>%
   group_by(te_id, word, archetype) %>%
   slice_max(visit_number, n = 1) %>%
   mutate(switches = visit_number-1)
+write_rds(avg.returns, "data/derivatives/comm-returns.rds")
 # combine with IQ
 m124 <- inner_join(m1.m2, avg.returns) %>%
   left_join(demo)
-# write_rds(m124, "data/derivatives/lmer-inputs/comm-returns.rds")
+write_rds(m124, "data/derivatives/lmer-inputs/comm-returns.rds")
 ####
 # lmer for demo
 lm <- lmerTest::lmer(switches ~ age + sex + age:sex + (1|te_id) + (1|archetype) + (1|word),

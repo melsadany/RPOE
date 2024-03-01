@@ -20,10 +20,10 @@ pairs <- read_rds("data/derivatives/cons-pairs.rds") %>% as.data.frame()
 euc <- read_rds("data/derivatives/euc-distance-w-minimum-of-2-words-per-task.rds") %>% as.data.frame() 
 divergence <- read_rds("data/derivatives/divergence-w-minimum-of-3-words-per-task.rds") %>% as.data.frame()
 voc.depth <- read_rds("data/derivatives/chulls.rds") %>% as.data.frame() %>%
-  pivot_longer(cols = starts_with("vol_"), names_to = "vol_source", values_to = "vol_value") %>%
-  mutate(vol_source = sub("vol_", "", vol_source)) %>% filter(nchar(vol_source)==1) %>%
   select(te_id, vol_source, vol_value)
-comm.returns <- read_rds("data/derivatives/lmer-inputs/comm-returns.rds") %>% as.data.frame()
+comm.returns <- read_rds("data/derivatives/comm-returns.rds") %>% as.data.frame()
+comm.lifetime <- read_rds("data/derivatives/community-data.rds") %>% as.data.frame() %>%
+  filter(visit_lifetime>0)
 #############
 ################################################################################
 ################################################################################
@@ -137,12 +137,12 @@ combined.metrics <- euc %>%
               dplyr::summarise(cos_similarity = mean(cos_similarity, na.rm = T))) %>%
   full_join(voc.depth  %>% 
               select(te_id, prompt = vol_source, vol_value)) %>%
-  full_join(comm.returns  %>% 
-              select(te_id, prompt = word, archetype, lifetime) %>%
+  full_join(comm.lifetime  %>% 
+              select(te_id, prompt = word, archetype, visit_lifetime) %>%
               group_by(te_id, prompt, archetype) %>%
-              dplyr::summarise(avg_lifetime = mean(lifetime, na.rm = T)) %>%
+              dplyr::summarise(tot_archetype_lifetime = sum(visit_lifetime, na.rm = T)) %>%
               ungroup() %>% group_by(te_id, prompt) %>%
-              dplyr::summarise(avg_lifetime = mean(avg_lifetime, na.rm = T))) %>%
+              dplyr::summarise(avg_lifetime = mean(tot_archetype_lifetime, na.rm = T))) %>%
   full_join(comm.returns %>%
               select(te_id, prompt = word, archetype, switches) %>%
               group_by(te_id, prompt) %>%
@@ -194,7 +194,7 @@ ggsave("figs/corr-iq-nih-averaged-metrics.png", bg = "white",
 m124 <- full_join(all, combined.metrics) %>%
   distinct() %>%
   full_join(m1.m2) %>% ungroup() %>% distinct() 
-
+write_rds(m124, "data/derivatives/all-summarized-metrics.rds")
 lmer.results <- foreach(i = 18:ncol(m124), .combine = rbind) %dopar% {
   y.var <- colnames(m124)[i]
   y <- scale(m124[,i] %>% as.matrix() %>% as.numeric(),scale = T, center = T)[,1]
@@ -220,21 +220,36 @@ lmer.results <- foreach(i = 18:ncol(m124), .combine = rbind) %dopar% {
   
   # didn't work
   # # make a model that uses all metrics together to predict IQ
-  # d2 <- m124 %>% 
-  #   select(colnames(all), colnames(combined.metrics)) %>%
-  #   mutate(yy = y) %>%
-  #   drop_na(yy)
-  # lm2 <- lmerTest::lmer(yy ~ onset + tot_comments + off_target + rep_prompt +
-  #                         rep_words_per_prompt + rep_word_at_all + count_all +
-  #                         full_euc_dist_normalized + global_divergence + cos_similarity +
-  #                         vol_value + avg_lifetime + avg_switches + communities_count + 
-  #                         (1|prompt),
-  #                       data = d2)
-  return(lmer.metric.one)
+  d2 <- m124 %>%
+    select(colnames(all), colnames(combined.metrics)) %>%
+    mutate(yy = y) %>%
+    drop_na(yy)
+  lm2 <- lmerTest::lmer(yy ~ onset + tot_comments + off_target + rep_prompt +
+                          rep_words_per_prompt + rep_word_at_all + count_all +
+                          full_euc_dist_normalized + global_divergence + cos_similarity +
+                          vol_value + avg_lifetime + avg_switches + communities_count +
+                          (1|prompt),
+                        data = d2 %>%
+                          mutate_at(c(3:ncol(d2)), .funs = function(x) scale(x, scale = T, center = T)[,1]))
+  res.2 <- jtools::summ(lm2, confin = T, pval = T)$coeftable %>%
+    as.data.frame() %>%
+    rownames_to_column("fixed") %>%
+    filter(fixed != "(Intercept)") %>%
+    rename(Estimate = `Est.`,
+           confint_min = `2.5%`,
+           confint_max = `97.5%`,
+           pval = p) %>%
+    mutate(y = y.var,
+           x = fixed,
+           model_type = "all_for_one")
+  return(rbind(lmer.metric.one %>%
+                 mutate(model_type = "one_for_one"),
+               res.2))
 }
 # plot
 lmer.results %>%
-  filter(fixed=="xx") %>%
+  # filter(fixed=="xx") %>%
+  filter(fixed!="xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", y),
          cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
@@ -252,10 +267,12 @@ lmer.results %>%
         strip.text.y.right = element_text(angle = 0)) +
   labs(x = "Estimate", y="",
        caption = paste0("n(samples): ", length(unique(m124$te_id)), "\n"))
-ggsave("figs/lmer-iq-nih-all-metrics-random-prompt.png", bg = "white",
+# ggsave("figs/lmer-iq-nih-all-metrics-random-prompt-one-for-one.png", bg = "white",
+ggsave("figs/lmer-iq-nih-all-metrics-random-prompt-all-for-one.png", bg = "white",
        width = 18, height = 12, units = "in", dpi = 360)
 lmer.results %>%
-  filter(fixed=="xx") %>%
+  # filter(fixed=="xx") %>%
+  filter(fixed!="xx") %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05"),
          FDR = p.adjust(pval, method = "fdr"),
          var = sub("_age_corrected_standard_score", "_NIH", y),

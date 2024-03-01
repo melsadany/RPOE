@@ -127,21 +127,31 @@ write_rds(m1.m2, "data/derivatives/m1m2.rds")
 corr.table(m1.m2 %>% select(any_of(colnames(m1)), - ends_with("_id")),
            m1.m2 %>% select(any_of(colnames(m2)), - ends_with("_id"))) %>%
   mutate(FDR = p.adjust(pval, method = "fdr")) %>%
-  filter(V1 %in% colnames(m1),
-         V2 %in% colnames(m2)) %>%
-  mutate(V1 = sub("_age_corrected_standard_score", "", V1),
-         V2 = sub("_composite_score", "", V2)) %>%
+  # filter(V1 %in% colnames(m1),
+         # V2 %in% colnames(m2)) %>%
+  mutate(V1 = sub("_age_corrected_standard_score", "NIH", V1),
+         V2 = sub("_composite_score", "", V2),
+         V2 = sub("_age_corrected_standard_score", "NIH", V2),
+         V1 = sub("_composite_score", "", V1),
+         cat1 = ifelse(grepl("NIH", V1), "NIH-TB", "IQ"),
+         cat2 = ifelse(grepl("NIH", V2), "NIH-TB", "IQ"),
+         V1 = sub("NIH", "", V1),
+         V2 = sub("NIH", "", V2),
+         V1 = factor(V1, levels = unique(V1)),
+         V2 = factor(V2, levels = unique(V2))) %>%
+  drop_na() %>%
   ggplot(aes(x=V1, y=V2, fill = r, label = ifelse(FDR<0.05, "**", ifelse(pval<0.05, "*",""))))+
   geom_tile()+
-  geom_text(size = 3)+
+  geom_text()+
   scale_fill_gradient2(low = redblack.col[2], high = redblack.col[1]) +
-  labs(y = "IQ", x = "NIH_TB", 
+  ggh4x::facet_grid2(cols = vars(cat1), rows = vars(cat2), scales = "free") +
+  labs(y = "", x = "", 
        caption = paste0("n(samples): ", nrow(m1.m2),"\n",
                         "**   FDR<0.05", "\n",
                         "*    pval<0.05")) +
   my.guides
 ggsave(filename = "figs/corr-between-NIH-TB-IQ.png", bg="white",
-       width = 6, height = 6, units = "in", dpi = 320)
+       width = 12, height = 12, units = "in", dpi = 320)
 rm(nih.tb);rm(iq);rm(m1);rm(m2);gc
 ################################################################################
 ################################################################################
