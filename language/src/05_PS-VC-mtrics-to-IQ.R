@@ -12,6 +12,7 @@ setwd(project.dir)
 ################################################################################
 # load files here
 m1.m2 <- read_rds("data/derivatives/m1m2.rds") 
+m1.m2.all <- read_rds("data/derivatives/m1m2-all-all.rds") 
 demo <- read_rds("data/raw/demo.rds")
 ps.vc <- read_rds("data/derivatives/ps-vc-text-clean.rds")
 #####
@@ -126,46 +127,50 @@ avg.t3 <- all %>%
   dplyr::summarise_at(.vars = colnames(all)[3:ncol(all)], .funs = function(x) mean(x, na.rm = T))
 ################################################################################
 ################################################################################
-combined.metrics <- full_join(avg, 
-                              euc %>% 
-                                select(te_id, prompt = word, full_euc_dist_normalized) %>%
-                                group_by(te_id) %>%
-                                dplyr::summarise(normalized_euc = mean(full_euc_dist_normalized, na.rm = T))) %>%
+combined.metrics <- euc %>% 
+  select(te_id, prompt = word, full_euc_dist_normalized) %>%
   full_join(divergence %>% 
-              select(te_id, prompt = word, global_divergence) %>%
-              group_by(te_id) %>%
-              dplyr::summarise(divergence = mean(global_divergence, na.rm = T))) %>%
+              select(te_id, prompt = word, global_divergence)) %>%
   full_join(pairs  %>% 
               select(te_id, prompt = word, cos_similarity) %>%
-              group_by(te_id) %>%
-              dplyr::summarise(cos_sim = mean(cos_similarity, na.rm = T))) %>%
+              group_by(te_id, prompt) %>%
+              dplyr::summarise(cos_similarity = mean(cos_similarity, na.rm = T))) %>%
   full_join(voc.depth  %>% 
-              select(te_id, prompt = vol_source, vol_value) %>%
-              group_by(te_id) %>%
-              dplyr::summarise(vocab_depth = mean(vol_value, na.rm = T))) %>%
+              select(te_id, prompt = vol_source, vol_value)) %>%
   full_join(comm.returns  %>% 
               select(te_id, prompt = word, archetype, lifetime) %>%
               group_by(te_id, prompt, archetype) %>%
               dplyr::summarise(avg_lifetime = mean(lifetime, na.rm = T)) %>%
               ungroup() %>% group_by(te_id, prompt) %>%
-              dplyr::summarise(avg_lifetime = mean(avg_lifetime, na.rm = T)) %>%
-              ungroup() %>% group_by(te_id) %>%
-              dplyr::summarise(community_lifetime = mean(avg_lifetime, na.rm = T))) %>%
+              dplyr::summarise(avg_lifetime = mean(avg_lifetime, na.rm = T))) %>%
   full_join(comm.returns %>%
               select(te_id, prompt = word, archetype, switches) %>%
               group_by(te_id, prompt) %>%
-              dplyr::summarise(avg_switches = sum(switches, na.rm = T)) %>%
-              ungroup() %>% group_by(te_id) %>%
-              dplyr::summarise(community_switches = mean(avg_switches, na.rm = T)))
+              dplyr::summarise(avg_switches = sum(switches, na.rm = T))) %>%
+  full_join(comm.returns %>%
+              select(te_id, prompt = word, archetype) %>%
+              distinct() %>% group_by(te_id, prompt) %>%
+              dplyr::summarise(communities_count = n()))
+summarized.metrics <- combined.metrics %>%
+  ungroup() %>% group_by(te_id) %>%
+  dplyr::summarise(normalized_euc = mean(full_euc_dist_normalized, na.rm = T),
+                   divergence = mean(global_divergence, na.rm = T),
+                   cos_sim = mean(cos_similarity, na.rm = T),
+                   vocab_depth = mean(vol_value, na.rm = T),
+                   community_lifetime = mean(avg_lifetime, na.rm = T),
+                   community_returns = mean(avg_switches, na.rm = T),
+                   community_count = mean(communities_count, na.rm = T)) %>%
+  full_join(avg)
+  
 
 # correlate features with m1m2
-m123 <- inner_join(m1.m2, combined.metrics)
+m123 <- inner_join(m1.m2, summarized.metrics)
 # complete.cases(m123)
 corr.table(m123 %>% select(colnames(m1.m2), -ends_with("_id")),
-           m123 %>% select(any_of(colnames(combined.metrics)), -te_id),
+           m123 %>% select(any_of(colnames(summarized.metrics)), -te_id),
            method = "spearman") %>%
   mutate(FDR = p.adjust(pval, method = "fdr")) %>%
-  filter(V1 %in% colnames(combined.metrics),
+  filter(V1 %in% colnames(summarized.metrics),
          V2 %in% colnames(m1.m2)) %>%
   mutate(V2 = sub("_age_corrected_standard_score", "_NIH", V2),
          cat2 = ifelse(grepl("NIH", V2), "NIH-TB", "IQ"),
@@ -184,5 +189,92 @@ corr.table(m123 %>% select(colnames(m1.m2), -ends_with("_id")),
   my.guides
 ggsave("figs/corr-iq-nih-averaged-metrics.png", bg = "white",
        width = 8, height = 8, units = "in", dpi = 360)
+################################################################################
+# try to check how these metrics can predict IQ/NIH-TB, but do a lmer instead of spearman
+m124 <- full_join(all, combined.metrics) %>%
+  distinct() %>%
+  full_join(m1.m2) %>% ungroup() %>% distinct() 
+
+lmer.results <- foreach(i = 18:ncol(m124), .combine = rbind) %dopar% {
+  y.var <- colnames(m124)[i]
+  y <- scale(m124[,i] %>% as.matrix() %>% as.numeric(),scale = T, center = T)[,1]
+  # do a one to one model
+  lmer.metric.one <- foreach(j = 3:16, .combine = rbind) %dopar% {
+    x.var <- colnames(m124)[j]
+    x <- scale(m124[,j] %>% as.matrix() %>% as.numeric(), scale = T, center = T)[,1]
+    lm <- lmerTest::lmer(yy ~ xx + (1|prompt), 
+                         data = m124 %>% select(te_id, prompt) %>% ungroup() %>%
+                           mutate(yy = as.numeric(y), xx = as.numeric(x)))
+    res <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
+      as.data.frame() %>%
+      rownames_to_column("fixed") %>%
+      filter(fixed != "(Intercept)") %>%
+      rename(Estimate = `Est.`,
+             confint_min = `2.5%`,
+             confint_max = `97.5%`,
+             pval = p) %>%
+      mutate(y = y.var,
+             x = x.var)
+    return(res)
+  }
+  
+  # didn't work
+  # # make a model that uses all metrics together to predict IQ
+  # d2 <- m124 %>% 
+  #   select(colnames(all), colnames(combined.metrics)) %>%
+  #   mutate(yy = y) %>%
+  #   drop_na(yy)
+  # lm2 <- lmerTest::lmer(yy ~ onset + tot_comments + off_target + rep_prompt +
+  #                         rep_words_per_prompt + rep_word_at_all + count_all +
+  #                         full_euc_dist_normalized + global_divergence + cos_similarity +
+  #                         vol_value + avg_lifetime + avg_switches + communities_count + 
+  #                         (1|prompt),
+  #                       data = d2)
+  return(lmer.metric.one)
+}
+# plot
+lmer.results %>%
+  filter(fixed=="xx") %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
+  mutate(var = sub("_age_corrected_standard_score", "_NIH", y),
+         cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
+         var= sub("_NIH", "", var),
+         var = factor(var, levels = unique(var))) %>%
+  ggplot(aes(x=Estimate, y=var,)) +
+  geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
+  scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
+  ggh4x::facet_grid2(rows = vars(cat2), cols = vars(x), scales = "free") +
+  geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
+                 linewidth = 0.4, height = 0, 
+                 position = position_dodge(width = 0.6)) +
+  theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
+        strip.text.y.right = element_text(angle = 0)) +
+  labs(x = "Estimate", y="",
+       caption = paste0("n(samples): ", length(unique(m124$te_id)), "\n"))
+ggsave("figs/lmer-iq-nih-all-metrics-random-prompt.png", bg = "white",
+       width = 18, height = 12, units = "in", dpi = 360)
+lmer.results %>%
+  filter(fixed=="xx") %>%
+  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05"),
+         FDR = p.adjust(pval, method = "fdr"),
+         var = sub("_age_corrected_standard_score", "_NIH", y),
+         cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
+         var= sub("_NIH", "", var),
+         var = factor(var, levels = unique(var))) %>%
+  ggplot(aes(x= var, y=x, fill = Estimate, label = ifelse(FDR<0.05, "**", ifelse(pval<0.05, ".","")))) +
+  geom_tile()+
+  geom_text()+
+  redblack.col.gradient +
+  ggh4x::facet_grid2(cols = vars(cat2), scales = "free") +
+  labs(y = "", x = "", 
+       caption = paste0("n(samples): ", length(unique(m124$te_id)),"\n",
+                        "prompt was a dded as a random variable", "\n",
+                        "    ** FDR < 0.05", "\n",
+                        "    .   pval < 0.05")) +
+  my.guides
+################################################################################
+################################################################################
+################################################################################
 ################################################################################
 ################################################################################
