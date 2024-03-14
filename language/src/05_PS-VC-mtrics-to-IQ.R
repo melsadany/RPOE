@@ -215,37 +215,49 @@ corr.table(m124 %>%
   my.guides
 ggsave("figs/corr-language-metrics-w-each-other.png", bg = "white",
        width = 9, height = 10, units = "in", dpi = 360)
-# do lmer
-lmer.results <- foreach(i = 18:(ncol(m124)-2), .combine = rbind) %dopar% {
-  y.var <- colnames(m124)[i]
-  y <- scale(m124[,i] %>% as.matrix() %>% as.numeric(),scale = T, center = T)[,1]
-  # do a one to one model
-  lmer.metric.one <- foreach(j = 3:16, .combine = rbind) %dopar% {
-    x.var <- colnames(m124)[j]
-    x <- scale(m124[,j] %>% as.matrix() %>% as.numeric(), scale = T, center = T)[,1]
+##################################################
+# get cleaner dataframe with vars of interest rescaled 
+# 
+m125 <- m124 %>%
+  select(1:2, onset, full_euc_dist_normalized, global_divergence,
+         cos_similarity, vol_value, avg_lifetime,
+         tot_comments, rep_prompt, rep_words_per_prompt, rep_word_at_all,
+         avg_switches, communities_count, count_all,
+         17:ncol(m124)) %>%
+  filter(global_divergence > 0) %>%
+  drop_na(dev_id)
+write_rds(m125, "data/derivatives/lmer-input-models-1-2-3.rds", compress = "gz")
+# try the 3 different models for prediction and plot them side by side
+# model 1: univariate for IQ and language
+# model 2: multivariate IQ ~ all language
+# model 3: multivariate language ~ all IQ
+# lmer here
+lmer.results <- foreach(i = 17:(ncol(m125)-2), .combine = rbind) %dopar% {
+  y.var <- colnames(m125)[i]
+  y <- scale(m125[,i] %>% as.matrix() %>% as.numeric(),scale = T, center = T)[,1]
+  # do a one to one model (model 1: univariate)
+  lmer.metric.one <- foreach(j = 3:15, .combine = rbind) %dopar% {
+    x.var <- colnames(m125)[j]
+    x <- scale(m125[,j] %>% as.matrix() %>% as.numeric(), scale = T, center = T)[,1]
     lm <- lmerTest::lmer(yy ~ xx + (1|prompt) + age + sex + age:sex, 
-                         data = m124 %>% select(te_id, prompt, age, sex) %>% ungroup() %>%
+                         data = m125 %>% select(te_id, prompt, age, sex) %>% ungroup() %>%
                            mutate(yy = as.numeric(y), xx = as.numeric(x)))
     res <- jtools::summ(lm, confin = T, pval = T)$coeftable %>%
       as.data.frame() %>%
-      rownames_to_column("fixed") %>%
-      filter(fixed != "(Intercept)") %>%
-      rename(Estimate = `Est.`,
-             confint_min = `2.5%`,
-             confint_max = `97.5%`,
-             pval = p) %>%
-      mutate(y = y.var,
-             x = x.var)
+      rownames_to_column("predictor") %>%
+      filter(predictor != "(Intercept)") %>%
+      rename(Estimate = 2,confint_min = 3,confint_max = 4,pval = 7) %>%
+      mutate(y = y.var,x = x.var)
     return(res)
   }
   
   # didn't work
-  # # make a model that uses all metrics together to predict IQ
-  d2 <- m124 %>%
-    select(age, sex, colnames(all), colnames(combined.metrics)) %>%
+  # make a model that uses all metrics together to predict IQ (model 2: multivariate)
+  d2 <- m125 %>%
+    select(age, sex, any_of(c(colnames(all), colnames(combined.metrics))))%>%
     mutate(yy = y) %>%
     drop_na(yy)
-  lm2 <- lmerTest::lmer(yy ~ onset + tot_comments + off_target + rep_prompt +
+  lm2 <- lmerTest::lmer(yy ~ onset + tot_comments + rep_prompt +
                           rep_words_per_prompt + rep_word_at_all + count_all +
                           full_euc_dist_normalized + global_divergence + cos_similarity +
                           vol_value + avg_lifetime + avg_switches + communities_count + 
@@ -255,69 +267,84 @@ lmer.results <- foreach(i = 18:(ncol(m124)-2), .combine = rbind) %dopar% {
                           mutate_at(c(5:ncol(d2)), .funs = function(x) scale(x, scale = T, center = T)[,1]))
   res.2 <- jtools::summ(lm2, confin = T, pval = T)$coeftable %>%
     as.data.frame() %>%
-    rownames_to_column("fixed") %>%
-    filter(fixed != "(Intercept)") %>%
-    rename(Estimate = `Est.`,
-           confint_min = `2.5%`,
-           confint_max = `97.5%`,
-           pval = p) %>%
-    mutate(y = y.var,
-           x = fixed,
-           model_type = "all_for_one")
-  return(rbind(lmer.metric.one %>%
-                 mutate(model_type = "one_for_one"),
+    rownames_to_column("predictor") %>%
+    filter(predictor != "(Intercept)") %>%
+    rename(Estimate = 2,confint_min = 3,confint_max = 4,pval = 7) %>%
+    mutate(y = y.var,x = predictor,
+           model_type = "model2")
+  return(rbind(lmer.metric.one %>% mutate(model_type = "model1"),
                res.2))
 }
+#####
+# make model 3
+lmer.results.m3 <- foreach(i = 3:15, .combine = rbind) %dopar% {
+  y.var <- colnames(m125)[i]
+  y <- scale(m125[,i] %>% as.matrix() %>% as.numeric(),scale = T, center = T)[,1]
+  # make a model that uses all IQ scores together to predict language (model 3: multivariate)
+  d2 <- m125 %>%
+    select(age, sex, prompt, any_of(colnames(m125)[17:ncol(m125)]))%>%
+    mutate(yy = y) %>%
+    drop_na(yy)
+  lm2 <- lmerTest::lmer(yy ~ PSI_composite_score + VCI_composite_score + WM_composite_score +
+                          VC+SI+BD+MR+CD+FSIQ+VP+DS+SS+
+                          PV_age_corrected_standard_score+flkr_age_corrected_standard_score+
+                          wm_age_corrected_standard_score+card_age_corrected_standard_score+
+                          pattern_age_corrected_standard_score+picture_age_corrected_standard_score+
+                          reading_age_corrected_standard_score+fluid_age_corrected_standard_score+
+                          crystallized_age_corrected_standard_score+cognition_tot_age_corrected_standard_score+
+                          cognition_EC_tot_age_corrected_standard_score+
+                          age + sex + age:sex +
+                          (1|prompt),
+                        data = d2 %>%
+                          mutate_at(c(4:ncol(d2)), .funs = function(x) scale(x, scale = T, center = T)[,1]))
+  res.2 <- jtools::summ(lm2, confin = T, pval = T)$coeftable %>%
+    as.data.frame() %>%
+    rownames_to_column("predictor") %>%
+    filter(predictor != "(Intercept)") %>%
+    rename(Estimate = 2,confint_min = 3,confint_max = 4,pval = 7) %>%
+    mutate(y = y.var,x = predictor,
+           model_type = "model3")
+  return(res.2)
+}
+#####
+# combine all results of 3 models together
+all.lmer <- rbind(lmer.results, 
+                  lmer.results.m3 %>% # flip x and y labels, to fit it with the big plot
+                    mutate(xx = y, y = x, x=xx) %>% select(-xx))
+write_rds(all.lmer, "data/derivatives/lmer-results-models-1-2-3.rds", compress = "gz")
+#####
 # plot
-lmer.results %>%
-  filter(model_type == "one_for_one",
-         fixed == "xx",
-         ! x %in% c("age", "sexM", "age:sexM")) %>%
-  # filter(model_type == "all_for_one", 
-         # ! x %in% c("age", "sexM", "age:sexM")) %>%
+all.lmer %>%
+  filter(! x %in% c("age", "sexM", "age:sexM"),
+         ! predictor %in% c("age", "sexM", "age:sexM"),
+         ! grepl("abs", y), ! y %in% c("VCI_PSI", "PV_PS_age_corrected_standard_score")) %>%
   mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05")) %>%
   mutate(var = sub("_age_corrected_standard_score", "_NIH", y),
          cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
          var= sub("_NIH", "", var),
-         var = factor(var, levels = unique(var))) %>%
-  ggplot(aes(x=Estimate, y=var,)) +
+         var = factor(var, levels = unique(var)),
+         model_type = factor(model_type, levels = c("model1", "model2", "model3"))) %>%
+  # filter(cat2=="IQ") %>%
+  filter(model_type %in% c("model1", "model2")) %>%
+  ggplot(aes(x=Estimate, y=reorder(var, desc(model_type)),color = model_type)) +
   geom_point(aes(alpha = sig),  position = position_dodge(width = 0.6), size =2.5, show.legend = F) +
   geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.2, color = "red") +
   scale_alpha_manual(values = c("pval < 0.05" = 1, "pval \u2265 0.05" = 0.3), name ="") +
   ggh4x::facet_grid2(rows = vars(cat2), cols = vars(x), scales = "free") +
+  scale_color_manual(values = six.colors)+
   geom_errorbarh(aes(xmin = confint_min, xmax = confint_max, alpha = sig), 
                  linewidth = 0.4, height = 0, 
                  position = position_dodge(width = 0.6)) +
   theme(panel.grid = element_line(linewidth = 0.1, colour = "grey"),
         strip.text.y.right = element_text(angle = 0)) +
   labs(x = "Estimate", y="",
-       caption = paste0("n(samples): ", length(unique(m124$te_id)), "\n"))
-ggsave("figs/lmer-iq-nih-all-metrics-random-prompt-one-for-one.png", bg = "white",
-# ggsave("figs/lmer-iq-nih-all-metrics-random-prompt-all-for-one.png", bg = "white",
-       width = 18, height = 12, units = "in", dpi = 360)
-lmer.results %>%
-  filter(model_type == "one_for_one",
-         fixed == "xx",
-         ! x %in% c("age", "sexM", "age:sexM")) %>%
-  # filter(model_type == "all_for_one", 
-         # ! x %in% c("age", "sexM", "age:sexM")) %>%
-  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05"),
-         FDR = p.adjust(pval, method = "fdr"),
-         var = sub("_age_corrected_standard_score", "_NIH", y),
-         cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
-         var= sub("_NIH", "", var),
-         var = factor(var, levels = unique(var))) %>%
-  ggplot(aes(x= var, y=x, fill = Estimate, label = ifelse(FDR<0.05, "**", ifelse(pval<0.05, ".","")))) +
-  geom_tile()+
-  geom_text()+
-  redblack.col.gradient +
-  ggh4x::facet_grid2(cols = vars(cat2), scales = "free") +
-  labs(y = "", x = "", 
-       caption = paste0("n(samples): ", length(unique(m124$te_id)),"\n",
-                        "prompt was a dded as a random variable", "\n",
-                        "    ** FDR < 0.05", "\n",
-                        "    .   pval < 0.05")) +
-  my.guides
+       caption = paste0("n(samples): ", length(unique(m124$te_id)), "\n","\n",
+                        "model 1: univariate (IQ ~ language metric)", "\n",
+                        "model 2: multivariate (IQ ~ all language metrics)"
+                        # , "\n","model 3: multivariate (language ~ all IQ scores)"
+                        ))
+ggsave("figs/lmer-iq-nih-all-metrics-random-prompt-all-models.png", bg = "white",
+       width = 20, height = 15, units = "in", dpi = 360)
 ################################################################################
 ################################################################################
 ################################################################################
@@ -326,8 +353,8 @@ library(fmsb)
 data <- rbind(rep(0.6, length(unique(lmer.results$x))-3),
               rep(-0.3, length(unique(lmer.results$x))-3),
               lmer.results %>% 
-                filter(model_type=="one_for_one",
-                       fixed == "xx") %>%
+                filter(model_type=="model2",
+                       ! predictor %in% c("age", "sexM", "age:sexM")) %>%
                 select(y, x, value = Estimate) %>%
                 filter(grepl("VCI_comp", y)|
                          grepl("PSI_comp", y)|
@@ -349,53 +376,34 @@ legend(x=1.2, y=1, legend = sub("_composite_score", "", rownames(data[-c(1,2),])
        text.col = "grey", cex=0.7, pt.cex=2)
 ################################################################################
 ################################################################################
-# make a heatmap of estimates
-lmer.results %>% 
-  filter(model_type=="one_for_one") %>%
-  select(y, x, Estimate, pval) %>%
-  mutate(sig = ifelse(pval<0.05, "pval < 0.05", "pval \u2265 0.05"),
-         FDR = p.adjust(pval, method = "fdr"),
-         var = sub("_age_corrected_standard_score", "_NIH", y),
-         cat2 = ifelse(grepl("NIH", var), "NIH-TB", "IQ"),
-         var= sub("_NIH", "", var),
-         var = factor(var, levels = unique(var))) %>%
-  ggplot(aes(x= var, y=x, fill = Estimate, 
-             label = ifelse(FDR<0.05, "**", ifelse(pval<0.05, ".","")))) +
-  geom_tile()+
-  geom_text()+
-  redblack.col.gradient +
-  ggh4x::facet_grid2(cols = vars(cat2), scales = "free") +
-  labs(y = "", x = "", 
-       caption = paste0("n(samples): ", length(unique(m124$te_id)),"\n",
-                        "prompt was a dded as a random variable", "\n",
-                        "    ** FDR < 0.05", "\n",
-                        "    .   pval < 0.05")) +
-  my.guides
-
 ################################################################################
 ################################################################################
 ################################################################################
 ################################################################################
 ################################################################################
 ################################################################################
-m124 <- read_rds("data/derivatives/all-summarized-metrics.rds")
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+m125 <- read_rds("data/derivatives/lmer-input-models-1-2-3.rds")
 # try building a regression tree to predict the IQ/NIH-TB 
 library(rpart)
-i.tree <- rpart(VCI_composite_score ~ ., data = m124 %>%
-                  select(colnames(m124)[3:16], VCI_composite_score))
+i.tree <- rpart(VCI_composite_score ~ ., data = m125 %>%
+                  select(colnames(m125)[3:15], VCI_composite_score))
 summary(i.tree)
 i.tree$cptable
 # try bagging instead
 library(caret)
 all.trees <- list()
-all.trees <- foreach(i = 18:44, .combine = rbind) %dopar% {
-  y.var <- colnames(m124)[i]
-  y <- m124[,i] %>% as.matrix() %>% as.numeric()
+all.trees <- foreach(i = 30:43, .combine = rbind) %dopar% {
+  y.var <- colnames(m125)[i]
+  y <- m125[,i] %>% as.matrix() %>% as.numeric()
   # CV bagged model
   i.tree <- rpart(
     y ~ ., 
-    data = m124 %>%
-      select(colnames(m124)[3:16]) %>%
+    data = m125 %>%
+      select(colnames(m125)[3:15], colnames(m125)[17:27]) %>%
       mutate(y = y) %>%
       mutate_all(.funs = function(x) scale(x, scale = T, center = T)[,1]))
   # get the most important features used for prediction
@@ -411,6 +419,143 @@ all.trees %>%
   geom_point()+
   facet_wrap(~y, scales = "free")
 ################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+# show how are we doing to predict main indices in comparison to NIH-TB
+# model 4: multivariate IQ ~ all language metrics + NIH-TB
+# lmer here
+lmer.results.m4 <- foreach(i = 30:33, .combine = rbind) %dopar% {
+  y.var <- colnames(m125)[i]
+  y <- scale(m125[,i] %>% as.matrix() %>% as.numeric(),scale = T, center = T)[,1]
+  # make a model that uses all metrics and NIH-TB together to predict IQ (model 4: multivariate)
+  d2 <- m125 %>%
+    select(age, sex, any_of(c(colnames(all), colnames(combined.metrics),
+                              colnames(m125)[17:27])))%>%
+    mutate(yy = y) %>%
+    drop_na(yy)
+  lm2 <- lmerTest::lmer(yy ~ onset + 
+                          # tot_comments + rep_prompt +
+                          # rep_words_per_prompt +
+                          rep_word_at_all + count_all +
+                          full_euc_dist_normalized + 
+                          # global_divergence + cos_similarity +
+                          # vol_value + avg_lifetime + avg_switches + communities_count +
+                          PV_age_corrected_standard_score+
+                          # flkr_age_corrected_standard_score+
+                          wm_age_corrected_standard_score+
+                          # card_age_corrected_standard_score+
+                          pattern_age_corrected_standard_score+
+                          # picture_age_corrected_standard_score+
+                          reading_age_corrected_standard_score+
+                          # fluid_age_corrected_standard_score+
+                          # crystallized_age_corrected_standard_score+
+                          cognition_tot_age_corrected_standard_score+
+                          # cognition_EC_tot_age_corrected_standard_score+
+                          age + sex + age:sex +
+                          (1|prompt),
+                        data = d2 %>%
+                          mutate_at(c(5:ncol(d2)), .funs = function(x) scale(x, scale = T, center = T)[,1]))
+  res.2 <- jtools::summ(lm2, confin = T, pval = T)$coeftable %>%
+    as.data.frame() %>%
+    rownames_to_column("predictor") %>%
+    filter(predictor != "(Intercept)") %>%
+    rename(Estimate = 2,confint_min = 3,confint_max = 4,pval = 7) %>%
+    mutate(y = y.var,x = predictor,
+           model_type = "model4")
+  return(res.2)
+}
+# trying to make a clean fancy plot for these results
+library(fmsb)
+data <- rbind(rep(1, length(unique(lmer.results.m4$x))-3),
+              rep(-0.5, length(unique(lmer.results.m4$x))-3),
+              lmer.results.m4 %>% 
+                filter(! predictor %in% c("age", "sexM", "age:sexM"),
+                       y!="FSIQ") %>%
+                select(y, x, value = Estimate) %>%
+                distinct() %>%
+                mutate(y = sub("_composite_score", "", y),
+                       x = sub("_age_corrected_standard_score", "", x)) %>%
+                filter(!grepl("EC_", x)) %>%
+                pivot_wider(names_from = "x", values_from = "value") %>%
+                column_to_rownames("y"))
+# Color vector
+colors_border=c( rgb(0.2,0.5,0.5,0.9), rgb(0.8,0.2,0.5,0.9) , rgb(0.7,0.5,0.1,0.9) )
+colors_in=c( rgb(0.2,0.5,0.5,0.4), rgb(0.8,0.2,0.5,0.4) , rgb(0.7,0.5,0.1,0.4) )
+# plot with default options:
+lab <- c(-0.6, -0.4,-0.2, 0, 0.2,0.4,0.6,0.8,1)
+radarchart(data, axistype=1, seg = length(lab)-1, 
+           pcol=colors_border , pfcol=colors_in , plwd=4 , plty=1,
+           cglcol="grey", cglty=1, axislabcol="grey", caxislabels=lab, cglwd=0.8,
+           vlcex=0.9)
+legend(x=1, y=1, legend = sub("_composite_score", "", rownames(data[-c(1,2),])), 
+       bty = "n", pch=20 , col=colors_in , 
+       text.col = "grey", cex=0.7, pt.cex=2)
+
+
+library(ggside)
+m126 <- inner_join(m125 %>% select(te_id, VCI_composite_score, PSI_composite_score, WM_composite_score,
+                                   ends_with("_standard_score")) %>%
+                     distinct(),
+                   summarized.metrics) 
+pp1 <- m126 %>%
+  pivot_longer(cols = c(count_all, PV_age_corrected_standard_score, 
+                        normalized_euc, community_count,
+                        reading_age_corrected_standard_score, 
+                        cognition_tot_age_corrected_standard_score), names_to = "var") %>%
+  mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics")) %>%
+  ggplot(aes(x=value, y = VCI_composite_score)) +
+  geom_point() + geom_smooth(method = "lm") +
+  ggpubr::stat_cor(color = "red") +
+  facet_wrap(~reorder(var, desc(cat)), scales = "free_x")+
+  labs(x="") +
+  geom_rug(alpha = 0.6)+
+  theme_linedraw()
+pp2 <- m126 %>%
+  pivot_longer(cols = c(count_all, pattern_age_corrected_standard_score, 
+                        community_count, fluid_age_corrected_standard_score,
+                        divergence, 
+                        cognition_tot_age_corrected_standard_score), names_to = "var") %>%
+  mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics")) %>%
+  ggplot(aes(x=value, y = PSI_composite_score)) +
+  geom_point() + geom_smooth(method = "lm") +
+  ggpubr::stat_cor(color = "red") +
+  facet_wrap(~reorder(var, desc(cat)), scales = "free_x")+
+  labs(x="") +
+  geom_rug(alpha = 0.6)+
+  theme_linedraw()
+pp3 <- m126 %>%
+  pivot_longer(cols = c(wm_age_corrected_standard_score,
+                        divergence, rep_words_per_prompt,
+                        cognition_tot_age_corrected_standard_score), names_to = "var") %>%
+  mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics")
+         # ,value = ifelse(var == "rep_words_per_prompt", log2(value), value)
+         ) %>%
+  ggplot(aes(x=value, y = WM_composite_score)) +
+  geom_point() + geom_smooth(method = "lm") +
+  ggpubr::stat_cor(color = "red") +
+  facet_wrap(~reorder(var, desc(cat)), scales = "free_x")+
+  # facet_grid(rows = vars(cat), cols = vars(var), scales = "free_x") +
+  labs(x="") +
+  geom_rug(alpha = 0.6)+
+  theme_linedraw()
+patchwork::wrap_plots(pp1 + labs(title = "A"),
+                      pp2 + labs(title = "B"),
+                      patchwork::wrap_plots(pp3 + labs(title = "C"), 
+                                            patchwork::plot_spacer(),
+                                            ncol = 2, widths = c(2,1)), 
+                      ncol = 1)
+ggsave("figs/scatterplot-lang-metrics-and-NIH-TB-predicting-IQ-main.png", bg = "white",
+       width = 12, height = 18, units = "in", dpi = 360)
+################################################################################
+################################################################################
+################################################################################
+# do anova to prove that a model of using our language metric is better than the NIH-TB
+m1<-glm(VCI_composite_score ~ count_all, data = m126)
+m2<-glm(VCI_composite_score ~ cognition_tot_age_corrected_standard_score, data = m126)
+summary(m1)$aic
+summary(m2)$aic
 ################################################################################
 ################################################################################
 ################################################################################

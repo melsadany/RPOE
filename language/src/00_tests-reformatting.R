@@ -153,6 +153,30 @@ corr.table(m1.m2 %>% select(any_of(colnames(m1)), - ends_with("_id")),
 ggsave(filename = "figs/corr-between-NIH-TB-IQ.png", bg="white",
        width = 12, height = 12, units = "in", dpi = 320)
 rm(nih.tb);rm(iq);rm(m1);rm(m2);gc
+# ggheatmap
+corr <- corr.table(m1.m2 %>% select(any_of(colnames(m1)), - ends_with("_id")),
+                   m1.m2 %>% select(any_of(colnames(m2)), - ends_with("_id"))) %>%
+  mutate(FDR = p.adjust(pval, method = "fdr")) %>%
+  mutate(V1 = sub("_age_corrected_standard_score", "NIH", V1),
+         V2 = sub("_composite_score", "", V2),
+         V2 = sub("_age_corrected_standard_score", "NIH", V2),
+         V1 = sub("_composite_score", "", V1),
+         cat1 = ifelse(grepl("NIH", V1), "NIH-TB", "IQ"),
+         cat2 = ifelse(grepl("NIH", V2), "NIH-TB", "IQ"),
+         V1 = sub("NIH", "", V1),
+         V2 = sub("NIH", "", V2),
+         V1 = factor(V1, levels = unique(V1)),
+         V2 = factor(V2, levels = unique(V2))) %>%
+  filter(!grepl("abs", V1),
+         !grepl("abs", V2),
+         ! V1 %in% c("PV_PS", "VCI_PSI"),
+         ! V2 %in% c("PV_PS", "VCI_PSI")) %>%
+  drop_na() %>%
+  # filter(cat1 == "IQ", cat2 == "NIH-TB") %>%
+  pivot_wider(names_from = "V2", values_from = r, id_cols = "V1") %>%
+  column_to_rownames("V1")
+corr <- corr[colnames(corr),]
+heatmap(corr%>%as.matrix(), symm = T, col=colorRampPalette(brewer.pal(8, "Greys"))((25)))
 ################################################################################
 ################################################################################
 ################################################################################
