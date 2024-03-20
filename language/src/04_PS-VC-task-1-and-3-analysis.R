@@ -1382,6 +1382,20 @@ aa <- stepArchetypes(tmp.emb[,-1] %>% as.matrix(), k = 10, nrep = 4, verbose = T
 write_rds(aa, "data/derivatives/embeddings-archetypes-10.rds")
 aa <- read_rds("data/derivatives/embeddings-archetypes-10.rds")
 a10 <- bestModel(aa)
+data.frame(A = c(1:10), 
+           SD = apply(a10$archetypes%>%as.matrix(),
+                       MARGIN =1,FUN =  function(x) {
+                         sd(x) %>% as.numeric()
+           })) %>% 
+  mutate(var = ((SD^2)/sum(SD^2))*100) %>%
+  ggplot(aes(x=A, y = var))+
+  geom_point()+
+  geom_line()+
+  scale_x_continuous(labels = paste("A", c(1:10)), breaks = c(1:10)) +
+  labs(y="variance explained", x="") +
+  theme(axis.text.x.bottom = element_text(angle = 0))
+ggsave("figs/archetypes-screeplot.png", bg= "white",
+       width = 6, height = 6, units = "in", dpi = 360)
 a10.meta <- cbind(word = tmp.emb$text, 
                   a10$alphas) %>%
   as.data.frame() %>%
@@ -1415,6 +1429,41 @@ words.categorized <- a10.long %>%
   group_by(word) %>%
   slice_max(order_by = value, n = 1) %>%
   ungroup()
+#####
+###
+# make a fancy plot for archetypes simplex
+ss <- simplexplot(a10)
+arc <- rbind(cbind(ss$proj_z, text = paste0("A", c(1:10)))) %>% as.data.frame()
+arc.fill <- arc %>% complete(nesting(x,y), text) %>% 
+  select(text, xend=x, yend=y) %>%
+  left_join(arc, .,by = 'text') %>%
+  filter(!(x==xend & y==yend)) %>%
+  mutate_at(.vars = c(1,2,4,5), .funs = function(x) as.numeric(x))
+cbind(ss$proj_h,
+      text = tmp.emb$text) %>%
+  rbind(cbind(ss$proj_z, text = paste0("A", c(1:10)))) %>%
+  as.data.frame() %>%
+  left_join(words.categorized %>% rename(text=word)) %>%
+  mutate(lab = ifelse(text %in% t$word, T, F),
+         lab = ifelse(text %in% paste0("A", c(1:10)), T, lab),
+         x=as.numeric(x),
+         y=as.numeric(y),
+         value = scale(value)[,1],
+         size2 = ifelse(grepl("A", text), 1, 0.7)) %>%
+  full_join(arc.fill %>% select(-text) %>% mutate(lab = F)) %>%
+  mutate(text = ifelse(is.na(xend), text, "")) %>%
+  ggplot(aes(x = x, y=y)) +
+  geom_segment(aes(x = x, y = y,xend = xend, yend = yend), color = "#eef0f2") +
+  geom_point(alpha=0.3) +
+  geom_text(aes(label = ifelse(grepl("A", text), text, ""), size = 0.7), show.legend = F) +
+  ggrepel::geom_text_repel(aes(label = ifelse(lab==F, "", text), 
+                               size = ifelse(grepl("A", text), 1.5, 0.8)),min.segment.length = 0,
+                           max.overlaps = 50, color = "black", force = 0.3, show.legend = F)+
+  scale_color_gradient2(high = redblack.col[1], low = "grey")+
+  my.guides +
+  theme_void()
+ggsave("figs/archetypes-map.png", bg = "white",
+       width = 10, height = 10, units = "in", dpi = 360)
 #####
 all.cat <- left_join(all[,1:7],
                      words.categorized %>% rename(text=word)) %>%
