@@ -228,11 +228,12 @@ combined.metrics <- euc %>% select(te_id, prompt, path_euclidean_distance) %>%
   full_join(comm.lifetime %>% select(te_id, prompt, avg_community_lifetime)) %>%
   full_join(comm.returns %>% select(te_id, prompt, community_switches)) %>%
   full_join(comm.count %>% select(te_id, prompt, communities_count)) %>%
-  full_join(onset %>% select(te_id, prompt,onset)) %>%
+  full_join(onset %>% select(te_id, prompt,onset) %>% mutate(prompt = ifelse(nchar(prompt)==1, toupper(prompt), prompt))) %>%
   full_join(comments %>% select(te_id, comments_made_binary)) %>%
   full_join(rep.prompt %>% select(te_id, repeats_prompt)) %>%
   full_join(rep.words %>% select(te_id, repeats_words_per_prompt)) %>%
-  full_join(count.words %>% select(te_id, prompt, unique_word_count))
+  full_join(count.words %>% select(te_id, prompt, unique_word_count)) %>%
+  filter(!(te_id == "2E_040" & nchar(prompt)>1))
 # average these features per te_id
 summarized.metrics <- combined.metrics %>%
   ungroup() %>% select(-prompt) %>% group_by(te_id) %>%
@@ -561,11 +562,13 @@ radarchart(data, axistype=1, seg = length(lab)-1,
 legend(x=1.1, y=1, legend = sub("_composite_score", "", rownames(data[-c(1,2),])), 
        bty = "n", pch=20 , col=colors_in , 
        text.col = "grey", cex=0.7, pt.cex=2)
-
-
+################################################################################
+################################################################################
+# show how are we doing to predict main indices in comparison to NIH-TB
+# univariate scatterplots
 library(ggside)
 m126 <- inner_join(m125 %>% select(te_id, VCI_composite_score, PSI_composite_score, WM_composite_score,
-                                   Coding,Digit_Span,Symbol_Search,
+                                   Coding,Digit_Span,Symbol_Search,VCI_PSI,FSIQ,
                                    ends_with("_standard_score")) %>%
                      distinct(),
                    summarized.metrics) 
@@ -575,25 +578,26 @@ pp1 <- m126 %>%
                         oral_reading_recognition_age_corrected_standard_score, 
                         cognition_total_composite_age_corrected_standard_score), names_to = "var") %>%
   mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics")) %>%
+  mutate(var = sub("_age_corrected_standard_score", "", var)) %>%
   ggplot(aes(x=value, y = VCI_composite_score)) +
   geom_point() + geom_smooth(method = "lm") +
   ggpubr::stat_cor(color = "red") +
   facet_wrap(~reorder(var, desc(cat)), scales = "free_x")+
-  labs(x="") +
+  labs(x="", y="Verbal Comprehension Index") +
   geom_rug(alpha = 0.6)+
   theme_linedraw()
 pp2 <- m126 %>%
-  # filter(global_divergence<0.01)%>%
   pivot_longer(cols = c(communities_count, pattern_comparison_PS_age_corrected_standard_score, 
                         onset, cognition_fluid_composite_age_corrected_standard_score,
                         community_switches,
                         cognition_total_composite_age_corrected_standard_score), names_to = "var") %>%
   mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics")) %>%
+  mutate(var = sub("_age_corrected_standard_score", "", var)) %>%
   ggplot(aes(x=value, y = Coding)) +
   geom_point() + geom_smooth(method = "lm") +
   ggpubr::stat_cor(color = "red") +
   facet_wrap(~reorder(var, desc(cat)), scales = "free_x")+
-  labs(x="") +
+  labs(x="", y = "Coding (Processing Speed)") +
   geom_rug(alpha = 0.6)+
   theme_linedraw()
 pp3 <- m126 %>%
@@ -603,12 +607,13 @@ pp3 <- m126 %>%
   mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics")
          # ,value = ifelse(var == "rep_words_per_prompt", log2(value), value)
          ) %>%
+  mutate(var = sub("_age_corrected_standard_score", "", var)) %>%
   ggplot(aes(x=value, y = WM_composite_score)) +
   geom_point() + geom_smooth(method = "lm") +
   ggpubr::stat_cor(color = "red") +
   facet_wrap(~reorder(var, desc(cat)), scales = "free_x")+
   # facet_grid(rows = vars(cat), cols = vars(var), scales = "free_x") +
-  labs(x="") +
+  labs(x="", y = "Working Memory Index") +
   geom_rug(alpha = 0.6)+
   theme_linedraw()
 patchwork::wrap_plots(pp1 + labs(title = "A"),
@@ -617,6 +622,93 @@ patchwork::wrap_plots(pp1 + labs(title = "A"),
                       ncol = 1)
 ggsave("figs/scatterplot-lang-metrics-and-NIH-TB-predicting-IQ-main.png", bg = "white",
        width = 12, height = 18, units = "in", dpi = 360)
+# discrepency
+p1p <- m126 %>%
+  pivot_longer(cols = c(picture_vocabulary_age_corrected_standard_score,
+                        global_divergence, path_euclidean_distance,
+                        cognition_total_composite_age_corrected_standard_score), names_to = "var") %>%
+  mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics")) %>%
+  mutate(var = sub("_age_corrected_standard_score", "", var)) %>%
+  ggplot(aes(x=value, y = VCI_PSI)) +
+  geom_point() + geom_smooth(method = "lm") +
+  ggpubr::stat_cor(color = "red") +
+  facet_wrap(~reorder(var, desc(cat)), scales = "free_x")+
+  labs(x="", y = "VCI-PSI") +
+  geom_rug(alpha = 0.6)+
+  theme_linedraw()
+p2p <- m126 %>%
+  mutate(comments_made_binary = ifelse(comments_made_binary==1, T, F)) %>%
+  ggplot(aes(x=comments_made_binary, y = VCI_PSI, fill = comments_made_binary))+
+  geom_violin(show.legend = F) + geom_boxplot(width = 0.2, fill = "white")+
+  ggpubr::stat_compare_means(color = "red")+
+  scale_fill_manual(values = six.colors[c(1,4)]) +
+  theme(axis.text.x.bottom = element_text(angle = 0, hjust = 0.5))+
+  labs(x="making comments")
+patchwork::wrap_plots(p1p,patchwork::wrap_plots(patchwork::plot_spacer(), p2p, ncol = 1),
+                      widths = c(2,1))
+ggsave("figs/scatterplot-lang-metrics-and-NIH-TB-predicting-discrepency.png", bg = "white",
+       width = 10, height = 8, units = "in", dpi = 360)
+
+####
+# make a bigger plot for all, with keeping ones of interest
+m126 %>%
+  pivot_longer(cols = c(picture_vocabulary_age_corrected_standard_score,
+                        cognition_total_composite_age_corrected_standard_score,
+                        oral_reading_recognition_age_corrected_standard_score,
+                        pattern_comparison_PS_age_corrected_standard_score,
+                        cognition_fluid_composite_age_corrected_standard_score,
+                        list_sorting_wm_age_corrected_standard_score,
+                        communities_count, unique_word_count,
+                        global_divergence, path_euclidean_distance,
+                        community_switches, onset,
+                        vocabulary_depth), names_to = "var") %>%
+  pivot_longer(cols = c(VCI_composite_score, 
+                        Coding, 
+                        WM_composite_score,
+                        FSIQ), names_to = "measure", values_to = "score") %>%
+  select(var, value, measure, score) %>%
+  mutate(cat = ifelse(grepl("standard_score", var), "NIH-TB", "derived metrics"),
+         measure = factor(measure, levels = c("FSIQ", "VCI_composite_score", 
+                                              "Coding", "WM_composite_score"))) %>%
+  mutate(keep = ifelse((measure == "VCI_composite_score" & 
+                          var %in% c("cognition_total_composite_age_corrected_standard_score",
+                                     "oral_reading_recognition_age_corrected_standard_score",
+                                     "picture_vocabulary_age_corrected_standard_score",
+                                     "communities_count", "path_euclidean_distance", "unique_word_count")) |
+                         (measure == "Coding" & 
+                            var %in% c("cognition_total_composite_age_corrected_standard_score",
+                                       "pattern_comparison_PS_age_corrected_standard_score",
+                                       "cognition_fluid_composite_age_corrected_standard_score",
+                                       "communities_count", "community_switches", "onset")) |
+                         (measure == "WM_composite_score" & 
+                            var %in% c("cognition_total_composite_age_corrected_standard_score",
+                                       "list_sorting_wm_age_corrected_standard_score",
+                                       "global_divergence",
+                                       "unique_word_count", "vocabulary_depth")) |
+                         (measure == "FSIQ" & 
+                            var %in% c("cognition_total_composite_age_corrected_standard_score",
+                                       "cognition_fluid_composite_age_corrected_standard_score",
+                                       "communities_count", "global_divergence",
+                                       "unique_word_count", "vocabulary_depth")), T, F)) %>%
+  filter(keep == T) %>%
+  mutate(var = sub("_age_corrected_standard_score", "", var)) %>%
+  group_by(measure) %>% mutate(score = scale(score, scale = T, center = T)[,1]) %>% ungroup() %>%
+  group_by(var) %>% mutate(value = scale(value, scale = T, center = T)[,1]) %>% ungroup() %>%
+  ggplot(aes(x=score, y = value)) +
+  # ggplot(aes(x=value, y = score)) +
+  geom_point() + geom_smooth(method = "lm", color = six.colors[3]) +
+  ggpubr::stat_cor(color = "red") +
+  ggh4x::facet_grid2(cols = vars(measure), rows = vars(reorder(var, desc(cat))),
+                     scales = "free", render_empty = F)+
+  # ggh4x::facet_nested_wrap(~measure+cat+var, nrow = 4)+
+  labs(x="Z-transformed derived metric score", y = "Z-transformed IQ score") +
+  geom_rug(alpha = 0.6)+
+  theme_linedraw() +
+  theme(strip.text.y.right = element_text(angle = 0))
+ggsave("figs/scatterplot-lang-metrics-and-NIH-TB-predicting-main-V2.png", bg = "white",
+       width = 13, height = 20, units = "in", dpi = 360)
+# ggsave("figs/scatterplot-lang-metrics-and-NIH-TB-predicting-main-V3.png", bg = "white",
+#        width = 18, height = 12, units = "in", dpi = 360)
 ################################################################################
 ################################################################################
 ################################################################################
