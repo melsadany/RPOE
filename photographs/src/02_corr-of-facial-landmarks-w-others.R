@@ -25,7 +25,8 @@ ps.summ <- read_rds("../language/data/derivatives/ps-vc-summary-data.rds") %>%
 # get participants' metadata
 meta <- readxl::read_xlsx("../language/data/raw/RPOE_participants_metadata.xlsx", sheet = 1) %>%
   drop_na(DOB) %>%
-  mutate(age = age(DOB, floor = F))
+  mutate(age = age(DOB, floor = F)) %>%
+  mutate(Race = ifelse(is.na(Race), "White", Race))
 vitals <- readxl::read_xlsx("../language/data/raw/RPOE Stats.xlsx", sheet = 1) %>%
   select(devGenes_id = 2, height = 5, weight =6, head_circ=7) %>%
   mutate(height = as.numeric(height), weight = as.numeric(weight), head_circ = as.numeric(head_circ)) %>%
@@ -131,8 +132,11 @@ ggsave(filename = paste0("figs/corr_facial-distances-IQ-",
 ################################################################################
 # get facial areas
 areas <- read_csv("data/derivatives/facial.areas.csv") %>%
-  left_join(meta %>% select(te_id, age, sex, bmi, Race))
-
+  left_join(meta %>% select(te_id, age, sex, bmi, Race)) %>%
+  mutate(A_M = A_M_R+A_M_L) %>% select(-"A_M_R", -"A_M_L")%>%
+  mutate(A_N = A_N_R+A_N_L) %>% select(-"A_N_R", -"A_N_L")%>%
+  mutate(A_CHK_R = A_CHK_I_R+A_CHK_O_R) %>% select(-"A_CHK_I_R", -"A_CHK_O_R")%>%
+  mutate(A_CHK_L = A_CHK_I_L+A_CHK_O_L) %>% select(-"A_CHK_I_L", -"A_CHK_O_L")
 
 # plot correlation bet areas and age
 areas %>%
@@ -180,8 +184,8 @@ res.areas <- cbind(te_id = areas$te_id,
                      }) %>%
                      as.data.frame()) %>%
   # get asymmetry score as the average difference between R and left areas
-  mutate(asym = ((A_ES_R + A_E_R + A_CHK_I_R + A_N_R + A_CHK_O_R + A_M_R) - 
-                   (A_ES_L + A_E_L + A_CHK_I_L + A_N_L + A_CHK_O_L + A_M_L))) 
+  mutate(asym = ((A_ES_R + A_E_R + A_CHK_R) - 
+                   (A_ES_L + A_E_L + A_CHK_L))) 
 # if decided not to correct, run this
 # res.areas <- areas %>%
 #   mutate(asym = ((A_ES_R + A_E_R + A_CHK_I_R + A_N_R + A_CHK_O_R + A_M_R) - 
